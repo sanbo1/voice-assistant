@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、.env のひな形。
+# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、.env のひな形。
 # 何度実行してもよい（導入済みのものはそのまま。.env があれば触らない）。
 #
 # 使い方（Pi 上で）：bash ~/voice-assistant/tools/setup_pi.sh
@@ -31,6 +31,26 @@ if [ ! -x venv/bin/python ]; then
     echo "venv を作成しました"
 fi
 venv/bin/pip install -r requirements.txt
+
+echo "== モデル"
+# tools/models.txt の各行：保存先 URL SHA-256。ない場合だけダウンロードし、どちらの場合も SHA-256 を確かめる
+while read -r dest url sha256; do
+    if [ ! -e "$dest" ]; then
+        echo "ダウンロードします：$dest"
+        mkdir -p "$(dirname "$dest")"
+        curl -fsSL --retry 3 -o "$dest.part" "$url"
+        if ! echo "$sha256  $dest.part" | sha256sum -c --quiet - >/dev/null 2>&1; then
+            rm -f "$dest.part"
+            echo "SHA-256 が一致しません（ダウンロードしたファイルは削除しました）：$url" >&2
+            exit 1
+        fi
+        mv "$dest.part" "$dest"
+    elif ! echo "$sha256  $dest" | sha256sum -c --quiet - >/dev/null 2>&1; then
+        echo "SHA-256 が一致しません（手で確認してください）：$dest" >&2
+        exit 1
+    fi
+    echo "OK：$dest"
+done < <(sed 's/#.*//' tools/models.txt | awk 'NF')
 
 echo "== .env"
 if [ -e .env ]; then

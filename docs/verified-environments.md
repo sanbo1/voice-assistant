@@ -42,3 +42,61 @@ pycparser==3.0
 python-dotenv==1.2.3
 sounddevice==0.5.6
 ```
+
+## 2026-09-19：段階 2 の手順 2（ウェイクワード検知）
+
+- 結果：成功（しきい値 0.5）
+  - `scripts/01_wakeword.py --show-scores` で「hey jarvis」を 5 回発話 → 4 回検知（スコア 0.83／0.76／0.85／0.51）
+    - 検知しなかった 1 回は小声で話しかけたもの
+    - スコア 0.51 の 1 回は「ジャービス」だけを発話したもの（しきい値ぎりぎりで反応）
+  - 約 36 秒間、それ以外の会話・物音での誤検知なし
+  - 処理時間：1 フレーム（80ms）あたり平均 8.6 ms（実時間の約 11%）
+  - onnxruntime のテレメトリ無効化（`ORT_DISABLE_TELEMETRY=1`）後、テレメトリ用のファイルが作られないことを確認
+  - PC（Windows 11、Python 3.11.9）で pytest 16 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器：前回と同じ（USB マイク、HDMI モニターのスピーカー）。microSD は 2015 年製で書き込みが非常に遅い
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+```

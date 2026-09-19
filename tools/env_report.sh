@@ -34,3 +34,15 @@ echo
 echo '```'
 venv/bin/pip freeze
 echo '```'
+echo
+echo "モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）："
+echo
+echo '```'
+sed 's/#.*//' tools/models.txt | awk 'NF {print $1}' | while read -r path; do
+    if [ -e "$path" ]; then
+        echo "${path}  $(sha256sum "$path" | cut -c1-16)"
+    else
+        echo "${path}  （なし）"
+    fi
+done
+echo '```'

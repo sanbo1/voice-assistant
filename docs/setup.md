@@ -18,6 +18,7 @@ Pi を初期化して作り直すときや、機体を増やすときに使う�
 | Python | 3.11.2 |
 | マイク | USB マイク（C-Media 製 USB PnP Audio Device、録音専用） |
 | スピーカー | HDMI モニターのスピーカー（将来 USB スピーカーに変更予定） |
+| 記憶装置 | microSD 32GB。**今の機体のカードは 2015 年製で書き込みが非常に遅い**（大量に書き込むと数分止まる）。新しく用意する場合は A2 規格の SD カードか USB 接続の SSD にする |
 
 **OS のバージョンに注意**：Raspberry Pi Imager の既定の OS は、この環境より新しい版（Debian 13 trixie ベース、
 Python も新しい版）になっている可能性がある（未確認）。その場合、パッケージのバージョンや手順が合わないことがある。
@@ -25,6 +26,10 @@ Python も新しい版）になっている可能性がある（未確認）。�
 - Imager で bookworm ベースの版（「Legacy」などの名前で提供されている場合がある）を選ぶ
 - 新しい版で動作確認し直し、このファイルと `requirements.txt` を更新する。確認結果は
   verified-environments.md に追記する（bookworm での記録はそのまま残す）
+  - 新しい版では Python が 3.12 以降になる見込みで、openwakeword が Linux で必ず入れる tflite-runtime に
+    その版向けの配布がないため、`pip install` が失敗する可能性が高い（推測）。このプロジェクトは
+    tflite-runtime を使わないので、その場合は requirements.txt から外し、openwakeword を
+    `pip install --no-deps` で入れる方法に切り替える
 
 ## 1. SD カードの作成（PC の Raspberry Pi Imager）
 
@@ -77,19 +82,20 @@ tools/deploy.sh raspi-voice
 - Pi 側の上記のものはいったん消してから送り直すため、PC で削除したファイルは Pi からも消える。
   `venv/`・`.env`・`models/`・`recordings/` には触らない。
 
-## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・.env のひな形）
+## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・モデル・.env のひな形）
 
 ```bash
 ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
 ```
 
-- 何度実行してもよい。`requirements.txt` や `tools/apt-packages.txt` を変えたあとにも実行する。
+- 何度実行してもよい。`requirements.txt`・`tools/apt-packages.txt`・`tools/models.txt` を変えたあとにも実行する。
 - sudo にパスワードが必要な機体では `ssh -t` を付ける（2025-05-13 のイメージの初期ユーザーは不要だった）。
 - スクリプトが行うこと（手作業で行う場合の手順）：
   1. `tools/apt-packages.txt` のうち未導入のものを `sudo apt-get install` する
   2. `~/voice-assistant/venv` がなければ `python3 -m venv venv` で作る
   3. `venv/bin/pip install -r requirements.txt`
-  4. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
+  4. `tools/models.txt` のモデルのうち、ないものをダウンロードする。あるものも含めて SHA-256 を照合する
+  5. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |
 |---|---|---|
@@ -97,8 +103,12 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
 
 - python3-venv・python3-pip は OS に最初から入っている（2025-05-13 のイメージで確認）。
 - Raspberry Pi OS は `/etc/pip.conf` で piwheels（Pi 向けのビルド済みパッケージ）を参照する設定になっている。
-- Python パッケージは `requirements.txt` のとおり、間接的な依存も含めて版を固定している
-  （sounddevice：MIT、numpy：BSD-3-Clause ほか、python-dotenv：BSD-3-Clause、cffi：MIT-0、pycparser：BSD-3-Clause）。
+- Python パッケージは `requirements.txt` のとおり、間接的な依存も含めて版を固定している。
+  ライセンスはいずれも MIT・BSD・Apache-2.0・MPL-2.0（certifi、tqdm）のどれか（2026-09-19 に確認）。
+- **onnxruntime のテレメトリ**：公式ビルドは Linux でも Microsoft へのテレメトリ送信が既定で有効。
+  `voice_assistant/__init__.py` で `ORT_DISABLE_TELEMETRY=1` を設定して無効にしている。
+  このパッケージを通さずに onnxruntime を使う場合は、環境変数を自分で設定する。
+  有効なまま動かすと `~/.cache/Microsoft/DeveloperTools/` と `/tmp/mat-debug-*.log` が作られる。
   **固定した版が入手できない場合**は、`requirements.txt` の冒頭のコメントに従い、新しい版で確認し直す。
 
 ## 6. .env の記入（Pi 上。値はユーザーが自分で記入する）
@@ -113,7 +123,17 @@ nano ~/voice-assistant/.env
 
 ## 7. モデルのダウンロード
 
-（段階 2 で追加する。モデル名・入手先・サイズ・ライセンス・置き場所を記録し、ダウンロードは tools/setup_pi.sh に組み込む）
+`tools/setup_pi.sh` が `tools/models.txt` に従ってダウンロードする（手作業は不要）。置き場所は `~/voice-assistant/models/`。
+
+| ファイル | 用途 | 入手先 | サイズ | ライセンス |
+|---|---|---|---|---|
+| openwakeword/melspectrogram.onnx | ウェイクワード（前処理） | openWakeWord v0.5.1 のリリース | 1.1MB | CC BY-NC-SA 4.0 |
+| openwakeword/embedding_model.onnx | ウェイクワード（特徴量） | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
+| openwakeword/hey_jarvis_v0.1.onnx | ウェイクワード「hey jarvis」 | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
+
+- CC BY-NC-SA 4.0 は非商用に限る。モデルはリポジトリに含めない。
+- 入手先がなくなっていた場合に備え、動作中の機体の `models/` をバックアップしておくとよい。
+  別の入手先から取った場合は SHA-256 が一致することを確かめる。
 
 ## 8. 機体ごとの設定
 
@@ -134,10 +154,12 @@ nano ~/voice-assistant/.env
 cd ~/voice-assistant
 venv/bin/python scripts/00_audio_check.py --list
 venv/bin/python scripts/00_audio_check.py
+venv/bin/python scripts/01_wakeword.py
 ```
 
 - `--list` で USB マイクと `default` が見えること。
 - 録音中に話しかけ、再生された声が聞き取れること（耳で確認）。録音は `recordings/audio-check.wav` に残る。
+- `01_wakeword.py` の実行中に「hey jarvis」と言うと「検知しました」と表示されること。Ctrl+C で終了する。
 - 確認できたら、PC から `ssh raspi-voice 'bash ~/voice-assistant/tools/env_report.sh'` を実行し、
   出力に確認した範囲と結果を書き足して [verified-environments.md](verified-environments.md) の末尾に追記する。
 

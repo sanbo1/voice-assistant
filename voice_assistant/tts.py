@@ -7,10 +7,12 @@ apt の open-jtalk・open-jtalk-mecab-naist-jdic・hts-voice-nitech-jp-atr503-m0
 import io
 import re
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 
+from .config import PROJECT_ROOT
 from .levels import normalize_peak
 from .wav import read_wav
 
@@ -21,10 +23,8 @@ OUTPUT_PEAK_DBFS = -1.0
 # 話す速さ。1.0 はゆっくりに感じられ、1.2 が自然に近かった（2026-09-19）
 DEFAULT_SPEED = 1.2
 
-# 辞書が読みを誤る言葉と、正しい読み（見つけたら追加する）
-READINGS = {
-    "お手数": "おてすう",  # 「おてかず」と読まれた（2026-09-19）
-}
+# 辞書が読みを誤る言葉と、正しい読みの表（見つけたらこのファイルに 1 行ずつ追加する）
+READINGS_FILE = PROJECT_ROOT / "config" / "readings.tsv"
 
 _URL = re.compile(r"https?://\S+")
 # Markdown などの装飾に使われる記号（読み上げると不自然になるもの）
@@ -34,22 +34,41 @@ _BULLET = re.compile(r"^\s*(?:[-・•]|\d+\.)\s+", re.MULTILINE)
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
 
 
-def apply_readings(text: str, readings: dict[str, str] = READINGS) -> str:
-    """辞書が読みを誤る言葉を、正しい読みのかなに置き換える。"""
-    for word, reading in readings.items():
-        text = text.replace(word, reading)
+def load_readings(path: Path = READINGS_FILE) -> dict[str, str]:
+    """置き換え表（1 行に「言葉<タブ>読み」、# 以降はコメント）を読む。ファイルがなければ空の表。"""
+    if not path.exists():
+        return {}
+    readings: dict[str, str] = {}
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        fields = [field.strip() for field in line.split("\t") if field.strip()]
+        if len(fields) != 2:
+            raise ValueError(f"{path.name} の {number} 行目：「言葉<タブ>読み」の形になっていません：{line}")
+        readings[fields[0]] = fields[1]
+    return readings
+
+
+def apply_readings(text: str, readings: Mapping[str, str]) -> str:
+    """辞書が読みを誤る言葉を、正しい読みのかなに置き換える。長い言葉から先に置き換える。"""
+    for word in sorted(readings, key=len, reverse=True):
+        text = text.replace(word, readings[word])
     return text
 
 
-def to_speakable(text: str) -> str:
-    """AI の返答を読み上げ向けに整える。記号・URL・絵文字を除き、改行は句点の区切りにし、誤読する言葉を直す。"""
+def to_speakable(text: str, readings: Mapping[str, str] | None = None) -> str:
+    """AI の返答を読み上げ向けに整える。記号・URL・絵文字を除き、改行は句点の区切りにし、誤読する言葉を直す。
+
+    readings を省略すると、置き換え表のファイルをそのつど読む（ファイルを直せば、再起動なしで反映される）。
+    """
     text = _URL.sub("", text)
     text = _BULLET.sub("", text)
     text = _DECORATION.sub("", text)
     text = _EMOJI.sub("", text)
     lines = [" ".join(line.split()) for line in text.splitlines()]
     sentences = [line if line.endswith(("。", "！", "？", "!", "?")) else line + "。" for line in lines if line]
-    return apply_readings("".join(sentences))
+    return apply_readings("".join(sentences), load_readings() if readings is None else readings)
 
 
 class OpenJTalk:

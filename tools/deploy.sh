@@ -10,7 +10,7 @@ set -euo pipefail
 
 HOST="${1:-raspi-voice}"
 REMOTE_DIR="voice-assistant"   # Pi のホームディレクトリからの相対パス
-DEPLOY_ITEMS=(voice_assistant scripts tools requirements.txt .env.example)
+DEPLOY_ITEMS=(voice_assistant scripts tools config requirements.txt .env.example)
 
 cd "$(dirname "$0")/.."
 

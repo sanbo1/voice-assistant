@@ -1,8 +1,9 @@
 import io
 
 import numpy as np
+import pytest
 
-from voice_assistant.tts import to_speakable
+from voice_assistant.tts import READINGS_FILE, apply_readings, load_readings, to_speakable
 from voice_assistant.wav import read_wav, write_wav
 
 
@@ -45,3 +46,30 @@ def test_read_wav_from_bytes(tmp_path):
 
 def test_apply_readings_fixes_known_misreading():
     assert to_speakable("お手数ですが、ご確認ください。") == "おてすうですが、ご確認ください。"
+
+
+def test_load_readings(tmp_path):
+    path = tmp_path / "readings.tsv"
+    path.write_text("# コメント\nお手数\tおてすう\t# 注記\n\n一日\tついたち\n", encoding="utf-8")
+    assert load_readings(path) == {"お手数": "おてすう", "一日": "ついたち"}
+
+
+def test_load_readings_missing_file(tmp_path):
+    assert load_readings(tmp_path / "none.tsv") == {}
+
+
+def test_load_readings_rejects_malformed_line(tmp_path):
+    path = tmp_path / "readings.tsv"
+    path.write_text("お手数 おてすう\n", encoding="utf-8")  # タブではなく空白
+    with pytest.raises(ValueError, match="1 行目"):
+        load_readings(path)
+
+
+def test_apply_readings_longest_first():
+    readings = {"手数": "てすう", "お手数料": "おてすうりょう"}
+    assert apply_readings("お手数料と手数", readings) == "おてすうりょうとてすう"
+
+
+def test_repository_readings_file_is_valid():
+    # リポジトリの config/readings.tsv が読めること
+    assert load_readings(READINGS_FILE)["お手数"] == "おてすう"

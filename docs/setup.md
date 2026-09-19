@@ -78,7 +78,7 @@ Host raspi-voice
 tools/deploy.sh raspi-voice
 ```
 
-- 送るもの：`voice_assistant/`、`scripts/`、`tools/`、`requirements.txt`、`.env.example`（`__pycache__` は除く）。
+- 送るもの：`voice_assistant/`、`scripts/`、`tools/`、`config/`、`requirements.txt`、`.env.example`（`__pycache__` は除く）。
 - Pi 側の上記のものはいったん消してから送り直すため、PC で削除したファイルは Pi からも消える。
   `venv/`・`.env`・`models/`・`recordings/` には触らない。
 
@@ -127,6 +127,19 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
 設定ファイルは WirePlumber 0.4（bookworm）用の Lua 形式。新しい OS で WirePlumber 0.5 以降になった場合は
 形式が変わる（`~/.config/wireplumber/wireplumber.conf.d/` の `.conf`）ため、書き直す必要がある。
 
+**画面の自動消灯（HDMI のスピーカーを使う場合）**：モニターの画面が消えると HDMI のスピーカーからも音が出なく
+なる（2026-09-19 に確認したモニターの場合）。既定では 10 分操作がないと画面が消える（`swayidle`）ため、オフにする。
+システムの設定なので `setup_pi.sh` には含めず、手で実行する。
+
+```bash
+ssh raspi-voice 'sudo raspi-config nonint do_blanking 1'
+ssh raspi-voice 'sudo systemctl reboot'
+```
+
+- 確認：再起動後に `sudo raspi-config nonint get_blanking` が `1`、`pgrep swayidle` が何も出さないこと。
+- このコマンドは `~/.config/labwc/autostart` から `swayidle` の行を消し、`/etc/xdg/labwc-greeter/autostart` も書き換える。
+- USB スピーカーに替えた場合は、`sudo raspi-config nonint do_blanking 0` で戻してよい。
+
 ## 6. .env の記入（Pi 上。値はユーザーが自分で記入する）
 
 ```bash
@@ -167,6 +180,7 @@ nano ~/voice-assistant/.env
 | マイクの録音音量 | `alsamixer -c <マイクのカード番号>`（F4 で録音側） | 機体・マイクごとに調整 |
 | 既定の出力先 | `wpctl status` / `wpctl set-default <番号>` | HDMI と USB スピーカーを両方つなぐ場合 |
 | HDMI の音声出力を休止させない | `~/.config/wireplumber/main.lua.d/`（`tools/setup_pi.sh` が配置） | HDMI で音を出す機体のみ効く |
+| 画面の自動消灯をオフ | `sudo raspi-config nonint do_blanking 1`（5 の「画面の自動消灯」） | HDMI のスピーカーを使う機体のみ |
 | カーネルのページサイズ | `/boot/firmware/config.txt` | 標準（16KB）から変えた場合のみ記録する |
 
 ## 9. 動作確認
@@ -197,6 +211,19 @@ venv/bin/python scripts/05_speak.py
 （段階 3 で追加する）
 
 ---
+
+## 付録：読み上げの誤読を直す（置き換え表）
+
+音声合成が言葉の読みを誤った場合は、`config/readings.tsv`（リポジトリで管理）に 1 行追加する。
+
+1. 誤読を再現する：`ssh -t raspi-voice 'cd ~/voice-assistant && venv/bin/python scripts/05_speak.py "その言葉を含む文"'`
+2. PC で `config/readings.tsv` に「言葉<タブ>読み（ひらがな）」を 1 行追加する（# 以降に、いつ・どう誤読したかを書く）
+3. PC でテストを実行する（表の書式の誤りも検出される）：`.venv/Scripts/python -m pytest`
+4. `tools/deploy.sh` で配置し、1 の文で正しく読まれることを確かめる。表は読み上げのたびに読み込むため、再起動は不要
+5. コミットする
+
+- 置き換えは文字列の単純な置換で、長い言葉から先に置き換える。短い言葉を登録すると、それを含む別の言葉も
+  置き換わるため、なるべく前後を含めた言葉で登録する。
 
 ## 付録：PC の開発環境
 

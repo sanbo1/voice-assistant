@@ -1,0 +1,2 @@
+# 改行を LF にそろえる（Windows で編集して Pi に scp で配置するため）
+* text=auto eol=lf

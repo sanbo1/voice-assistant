@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、.env のひな形。
+# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、WirePlumber の設定、.env のひな形。
 # 何度実行してもよい（導入済みのものはそのまま。.env があれば触らない）。
 #
 # 使い方（Pi 上で）：bash ~/voice-assistant/tools/setup_pi.sh
@@ -51,6 +51,19 @@ while read -r dest url sha256; do
     fi
     echo "OK：$dest"
 done < <(sed 's/#.*//' tools/models.txt | awk 'NF')
+
+echo "== WirePlumber の設定（HDMI の音声出力を休止させない）"
+wp_src="tools/pi-config/wireplumber/51-voice-assistant-hdmi-no-suspend.lua"
+wp_dir="$HOME/.config/wireplumber/main.lua.d"
+if cmp -s "$wp_src" "$wp_dir/$(basename "$wp_src")"; then
+    echo "設定済み"
+else
+    mkdir -p "$wp_dir"
+    cp "$wp_src" "$wp_dir/"
+    echo "配置しました：$wp_dir/$(basename "$wp_src")"
+    echo "WirePlumber を再起動します（HDMI モニターが一瞬消えることがあります）"
+    systemctl --user restart wireplumber
+fi
 
 echo "== .env"
 if [ -e .env ]; then

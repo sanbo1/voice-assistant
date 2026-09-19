@@ -82,7 +82,7 @@ tools/deploy.sh raspi-voice
 - Pi 側の上記のものはいったん消してから送り直すため、PC で削除したファイルは Pi からも消える。
   `venv/`・`.env`・`models/`・`recordings/` には触らない。
 
-## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・モデル・.env のひな形）
+## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・モデル・WirePlumber の設定・.env のひな形）
 
 ```bash
 ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
@@ -95,7 +95,9 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
   2. `~/voice-assistant/venv` がなければ `python3 -m venv venv` で作る
   3. `venv/bin/pip install -r requirements.txt`
   4. `tools/models.txt` のモデルのうち、ないものをダウンロードする。あるものも含めて SHA-256 を照合する
-  5. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
+  5. `tools/pi-config/wireplumber/` の設定を `~/.config/wireplumber/main.lua.d/` に置き、変わった場合は
+     `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
+  6. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |
 |---|---|---|
@@ -105,11 +107,18 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
 - Raspberry Pi OS は `/etc/pip.conf` で piwheels（Pi 向けのビルド済みパッケージ）を参照する設定になっている。
 - Python パッケージは `requirements.txt` のとおり、間接的な依存も含めて版を固定している。
   ライセンスはいずれも MIT・BSD・Apache-2.0・MPL-2.0（certifi、tqdm）のどれか（2026-09-19 に確認）。
+  **固定した版が入手できない場合**は、`requirements.txt` の冒頭のコメントに従い、新しい版で確認し直す。
 - **onnxruntime のテレメトリ**：公式ビルドは Linux でも Microsoft へのテレメトリ送信が既定で有効。
   `voice_assistant/__init__.py` で `ORT_DISABLE_TELEMETRY=1` を設定して無効にしている。
   このパッケージを通さずに onnxruntime を使う場合は、環境変数を自分で設定する。
   有効なまま動かすと `~/.cache/Microsoft/DeveloperTools/` と `/tmp/mat-debug-*.log` が作られる。
-  **固定した版が入手できない場合**は、`requirements.txt` の冒頭のコメントに従い、新しい版で確認し直す。
+
+**HDMI の音声出力の休止**：WirePlumber は既定で、5 秒間音を出さない出力先を休止させる。HDMI では休止から
+戻るたびにモニターが一瞬消え、その間に再生した音が失われるため、HDMI の出力だけ休止しないように設定している
+（`session.suspend-timeout-seconds = 0`）。起動後に最初に音を出すときの 1 回だけはモニターが消える。
+確認：一度音を出したあと、`pactl list sinks short` で HDMI が `SUSPENDED` にならず `IDLE` のままであること。
+設定ファイルは WirePlumber 0.4（bookworm）用の Lua 形式。新しい OS で WirePlumber 0.5 以降になった場合は
+形式が変わる（`~/.config/wireplumber/wireplumber.conf.d/` の `.conf`）ため、書き直す必要がある。
 
 ## 6. .env の記入（Pi 上。値はユーザーが自分で記入する）
 
@@ -130,6 +139,7 @@ nano ~/voice-assistant/.env
 | openwakeword/melspectrogram.onnx | ウェイクワード（前処理） | openWakeWord v0.5.1 のリリース | 1.1MB | CC BY-NC-SA 4.0 |
 | openwakeword/embedding_model.onnx | ウェイクワード（特徴量） | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
 | openwakeword/hey_jarvis_v0.1.onnx | ウェイクワード「hey jarvis」 | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
+| silero_vad/silero_vad.onnx | 発話区間の検出 | Silero VAD v6.2.1（公式リポジトリ） | 2.3MB | MIT |
 
 - CC BY-NC-SA 4.0 は非商用に限る。モデルはリポジトリに含めない。
 - 入手先がなくなっていた場合に備え、動作中の機体の `models/` をバックアップしておくとよい。
@@ -146,6 +156,7 @@ nano ~/voice-assistant/.env
 | API キー・使用デバイス | Pi の `~/voice-assistant/.env` | ― |
 | マイクの録音音量 | `alsamixer -c <マイクのカード番号>`（F4 で録音側） | 機体・マイクごとに調整 |
 | 既定の出力先 | `wpctl status` / `wpctl set-default <番号>` | HDMI と USB スピーカーを両方つなぐ場合 |
+| HDMI の音声出力を休止させない | `~/.config/wireplumber/main.lua.d/`（`tools/setup_pi.sh` が配置） | HDMI で音を出す機体のみ効く |
 | カーネルのページサイズ | `/boot/firmware/config.txt` | 標準（16KB）から変えた場合のみ記録する |
 
 ## 9. 動作確認
@@ -155,11 +166,13 @@ cd ~/voice-assistant
 venv/bin/python scripts/00_audio_check.py --list
 venv/bin/python scripts/00_audio_check.py
 venv/bin/python scripts/01_wakeword.py
+venv/bin/python scripts/02_record_utterance.py
 ```
 
 - `--list` で USB マイクと `default` が見えること。
 - 録音中に話しかけ、再生された声が聞き取れること（耳で確認）。録音は `recordings/audio-check.wav` に残る。
 - `01_wakeword.py` の実行中に「hey jarvis」と言うと「検知しました」と表示されること。Ctrl+C で終了する。
+- `02_record_utterance.py`：「hey jarvis」でお知らせ音が鳴り、続けて話した内容が話し終わりで止まって再生されること。
 - 確認できたら、PC から `ssh raspi-voice 'bash ~/voice-assistant/tools/env_report.sh'` を実行し、
   出力に確認した範囲と結果を書き足して [verified-environments.md](verified-environments.md) の末尾に追記する。
 

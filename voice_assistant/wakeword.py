@@ -13,6 +13,8 @@ SAMPLE_RATE = 16000
 FRAME_SAMPLES = 1280  # 80ms。openWakeWord の処理単位
 MODELS_DIR = PROJECT_ROOT / "models" / "openwakeword"
 DEFAULT_MODEL = MODELS_DIR / "hey_jarvis_v0.1.onnx"
+# 2026-09-19 の確認で決めた値。0.5 では取りこぼしが多く、0.35 で約 11 分間誤検知がなかった
+DEFAULT_THRESHOLD = 0.35
 
 
 class TriggerGate:
@@ -39,7 +41,7 @@ class WakeWordDetector:
         self,
         model_path: Path = DEFAULT_MODEL,
         *,
-        threshold: float = 0.5,
+        threshold: float = DEFAULT_THRESHOLD,
         cooldown_seconds: float = 2.0,
         models_dir: Path = MODELS_DIR,
     ):

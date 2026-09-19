@@ -36,6 +36,11 @@ def play(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> Non
     sd.wait()
 
 
+def play_nowait(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> None:
+    """音声の再生を始め、終わるのを待たずに戻る（録音を続けながら鳴らす用）。"""
+    sd.play(samples, samplerate=sample_rate, device=device)
+
+
 def stream_frames(
     frame_samples: int, *, device: Device = None, sample_rate: int = SAMPLE_RATE
 ) -> Iterator[np.ndarray]:

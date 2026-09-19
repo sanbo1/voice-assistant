@@ -3,7 +3,7 @@
 使い方（Pi 上の ~/voice-assistant で）：
     venv/bin/python scripts/01_wakeword.py                 # 「hey jarvis」を検知したら表示
     venv/bin/python scripts/01_wakeword.py --show-scores   # 約 1 秒ごとに最大スコアも表示（しきい値の調整用）
-    venv/bin/python scripts/01_wakeword.py --threshold 0.6
+    venv/bin/python scripts/01_wakeword.py --threshold 0.5
 """
 
 import argparse
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from voice_assistant import audio  # noqa: E402
 from voice_assistant.config import load_audio_config, load_env_file  # noqa: E402
-from voice_assistant.wakeword import DEFAULT_MODEL, FRAME_SAMPLES, WakeWordDetector  # noqa: E402
+from voice_assistant.wakeword import DEFAULT_MODEL, DEFAULT_THRESHOLD, FRAME_SAMPLES, WakeWordDetector  # noqa: E402
 
 FRAMES_PER_SECOND = audio.SAMPLE_RATE // FRAME_SAMPLES  # 12（1 フレーム 80ms）
 
@@ -24,7 +24,8 @@ FRAMES_PER_SECOND = audio.SAMPLE_RATE // FRAME_SAMPLES  # 12（1 フレーム 80
 def main() -> int:
     parser = argparse.ArgumentParser(description="ウェイクワード検知の確認")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="ウェイクワードのモデル（.onnx）")
-    parser.add_argument("--threshold", type=float, default=0.5, help="検知のしきい値 0〜1（既定：0.5）")
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
+                        help="検知のしきい値 0〜1（既定：%(default)s）")
     parser.add_argument("--show-scores", action="store_true", help="約 1 秒ごとに最大スコアを表示する")
     args = parser.parse_args()
 

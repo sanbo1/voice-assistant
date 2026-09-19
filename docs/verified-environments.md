@@ -100,3 +100,67 @@ models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
 models/openwakeword/embedding_model.onnx  70d164290c1d095d
 models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 ```
+
+## 2026-09-19：段階 2 の手順 3（録音と発話区間検出）、ウェイクワードのしきい値の見直し
+
+- 結果：成功（ウェイクワードの反応率には課題が残る）
+  - `scripts/02_record_utterance.py`：「hey jarvis」→ お知らせ音 → 質問 → 話し終わり（無音 1.0 秒）で停止 → 保存・再生
+    - 発話 3 回：いずれも話し終わりで停止し、2.8〜3.3 秒の発話を切り出せた。ウェイクワード直後に続けて話しても録音できた
+    - 無発話 1 回：5.0 秒で「時間内に話し始めなかった」として終了
+  - Silero VAD の処理時間：1 フレーム（32ms）あたり約 0.3 ms。お知らせ音をマイクが拾っても声の確率は最大 0.34（発話と誤判定しない）
+  - HDMI の音声出力の休止（WirePlumber の既定で 5 秒）から戻る際にモニターが消え、その間の再生音が失われる問題があった。
+    HDMI の出力を休止させない設定（tools/pi-config/wireplumber/）で解消
+  - ウェイクワード：しきい値 0.5 では取りこぼしが多かったため 0.35 に変更
+    - しきい値 0.35 で 8 回発話 → 4 回検知（スコア 0.93／0.39／0.68／0.82）。取りこぼした回のスコアは 0.0〜0.32
+    - しきい値 0.35 で約 11 分間（654 秒）、生活音の中で誤検知 0 回。処理時間 1 フレーム（80ms）あたり平均 10.7 ms
+    - 同じ録音をスピーカーから流しても、スコアは 0.32〜0.89 とばらつく。取りこぼしの主因は、この発話者の言い方に対する
+      モデル（hey_jarvis_v0.1）の認識の安定性と推測（設定変更・ノイズ・処理経路の異常ではないことを確認済み）
+  - PC（Windows 11、Python 3.11.9）で pytest 35 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器：前回と同じ（USB マイク、HDMI モニターのスピーカー）。WirePlumber 0.4.13、PipeWire 1.2.7
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+```

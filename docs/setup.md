@@ -212,6 +212,20 @@ venv/bin/python scripts/05_speak.py
 
 ---
 
+## 付録：会話ログをモニターに表示する
+
+音声アシスタントは、やり取りとエラーを `~/voice-assistant/logs/conversation.log` に書く（毎日 0 時に切り替え、7 日分を保持）。
+モニターに表示するには、デスクトップに「会話ログ」アイコンを置き、ダブルクリックする。
+
+```bash
+ssh raspi-voice 'cp ~/voice-assistant/tools/pi-config/desktop/voice-assistant-log.desktop ~/Desktop/'
+```
+
+- ダブルクリックするとターミナルが開き、直近 50 行を表示したあと、新しいやり取りを自動で追加表示する
+  （中身は `tools/show_conversation.sh`）。閉じても音声アシスタント本体は止まらない。
+- 実行してよいか確認する画面が出た場合は「実行」を選ぶ。
+- 画面に質問と返答が表示されるため、部屋にいる人には内容が見える。
+
 ## 付録：読み上げの誤読を直す（置き換え表）
 
 音声合成が言葉の読みを誤った場合は、`config/readings.tsv`（リポジトリで管理）に 1 行追加する。

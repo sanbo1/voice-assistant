@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=会話ログ
+Comment=音声アシスタントのやり取りを表示する（~/voice-assistant/tools/show_conversation.sh）
+Exec=lxterminal --title=会話ログ -e bash -c "\$HOME/voice-assistant/tools/show_conversation.sh"
+Icon=utilities-terminal
+Terminal=false

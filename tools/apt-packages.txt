@@ -1,0 +1,2 @@
+# Pi に apt で入れるパッケージ（tools/setup_pi.sh が読む）。1 行に 1 つ。# 以降はコメント。
+libportaudio2    # sounddevice（録音・再生）が使う。PortAudio License（MIT 系）

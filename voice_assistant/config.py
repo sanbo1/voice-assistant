@@ -5,7 +5,7 @@
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -45,4 +45,19 @@ def load_audio_config(env: Mapping[str, str] = os.environ) -> AudioConfig:
     return AudioConfig(
         input_device=parse_device(env.get("AUDIO_INPUT_DEVICE")),
         output_device=parse_device(env.get("AUDIO_OUTPUT_DEVICE")),
+    )
+
+
+@dataclass(frozen=True)
+class GeminiConfig:
+    api_key: str = field(default="", repr=False)  # 表示やログに API キーが出ないようにする
+    model: str | None = None  # None なら既定のモデル
+    thinking_level: str | None = None  # None なら、既定のモデルのときだけ既定の思考の量を使う
+
+
+def load_gemini_config(env: Mapping[str, str] = os.environ) -> GeminiConfig:
+    return GeminiConfig(
+        api_key=(env.get("GEMINI_API_KEY") or "").strip(),
+        model=(env.get("GEMINI_MODEL") or "").strip() or None,
+        thinking_level=(env.get("GEMINI_THINKING_LEVEL") or "").strip() or None,
     )

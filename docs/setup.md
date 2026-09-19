@@ -129,6 +129,8 @@ nano ~/voice-assistant/.env
 
 - `GEMINI_API_KEY`：Google AI Studio で発行したキー。
   **複数台で同じキー（同じプロジェクト）を使うと、無料枠の回数制限を全台で分け合う**ことになる。
+- `GEMINI_MODEL` / `GEMINI_THINKING_LEVEL`：空なら既定（gemini-3.6-flash、思考 minimal）。
+  既定のモデルが使えなくなった場合は、AI Studio で使えるモデルを確かめて記入する。
 - `AUDIO_INPUT_DEVICE` / `AUDIO_OUTPUT_DEVICE`：空なら既定のデバイス。機体ごとに変える場合に記入する。
 
 ## 7. モデルのダウンロード
@@ -170,6 +172,7 @@ venv/bin/python scripts/00_audio_check.py
 venv/bin/python scripts/01_wakeword.py
 venv/bin/python scripts/02_record_utterance.py
 venv/bin/python scripts/03_transcribe.py --listen
+venv/bin/python scripts/04_ask_ai.py
 ```
 
 - `--list` で USB マイクと `default` が見えること。
@@ -177,6 +180,7 @@ venv/bin/python scripts/03_transcribe.py --listen
 - `01_wakeword.py` の実行中に「hey jarvis」と言うと「検知しました」と表示されること。Ctrl+C で終了する。
 - `02_record_utterance.py`：「hey jarvis」でお知らせ音が鳴り、続けて話した内容が話し終わりで止まって再生されること。
 - `03_transcribe.py --listen`：話した内容が文字で表示されること。
+- `04_ask_ai.py`：用意した 4 つの質問に返答が表示されること（Gemini に 4 回送信する。.env の API キーが必要）。
 - 確認できたら、PC から `ssh raspi-voice 'bash ~/voice-assistant/tools/env_report.sh'` を実行し、
   出力に確認した範囲と結果を書き足して [verified-environments.md](verified-environments.md) の末尾に追記する。
 

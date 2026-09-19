@@ -1,4 +1,4 @@
-from voice_assistant.config import AudioConfig, load_audio_config, parse_device
+from voice_assistant.config import AudioConfig, GeminiConfig, load_audio_config, load_gemini_config, parse_device
 
 
 def test_parse_device_empty_means_default():
@@ -24,3 +24,18 @@ def test_load_audio_config_defaults():
 def test_load_audio_config_from_env():
     env = {"AUDIO_INPUT_DEVICE": "USB PnP", "AUDIO_OUTPUT_DEVICE": "3"}
     assert load_audio_config(env) == AudioConfig(input_device="USB PnP", output_device=3)
+
+
+def test_load_gemini_config():
+    config = load_gemini_config({"GEMINI_API_KEY": " secret-key ", "GEMINI_MODEL": "gemini-3.8-flash",
+                                 "GEMINI_THINKING_LEVEL": "low"})
+    assert config == GeminiConfig(api_key="secret-key", model="gemini-3.8-flash", thinking_level="low")
+
+
+def test_load_gemini_config_defaults():
+    assert load_gemini_config({}) == GeminiConfig(api_key="", model=None, thinking_level=None)
+    assert load_gemini_config({"GEMINI_MODEL": " "}).model is None
+
+
+def test_gemini_config_repr_hides_api_key():
+    assert "secret-key" not in repr(GeminiConfig(api_key="secret-key", model="m"))

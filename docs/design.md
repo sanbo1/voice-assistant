@@ -27,7 +27,7 @@
 | ウェイクワード | openWakeWord（既製の英語ワード。例：hey jarvis） | 日本語の独自ワード：openWakeWord の独自学習（日本語での精度は未確認）、または Porcupine（日本語の独自ワード対応、個人利用の無料枠あり） |
 | 発話区間検出 | Silero VAD（または webrtcvad） | 無音時間での打ち切り |
 | 音声認識 | Vosk（日本語の小型モデル） | faster-whisper（Pi 5 では有力、要計測）、録音を Gemini に直接送る方式 |
-| AI | Gemini API 無料枠（2.5 Flash） | Flash-Lite、Claude API（Haiku 4.5、有料）、Groq の無料枠 |
+| AI | Gemini API 無料枠（gemini-3.6-flash、思考 minimal。REST API を requests で直接呼ぶ） | ほかの Gemini 3 系 Flash・Flash-Lite、Claude API（Haiku 4.5、有料）、Groq の無料枠 |
 | 音声合成 | Open JTalk | VOICEVOX（Pi 5 では有力、要計測）、Piper |
 | 実装言語 | Python 3 | ― |
 
@@ -41,10 +41,14 @@
 - ウェイクワードなしで続けて話せる機能は改良案とする（話し終わりの判定や誤反応への対策が必要なため）。
 
 ## AI サービスに関する注意（2026-09 時点の調査。変更されやすい）
-- Gemini 無料枠の目安：2.5 Flash は 10 回/分・250 回/日、Flash-Lite は 15 回/分・1,000 回/日。
+- Gemini 無料枠の目安（初期検討時）：2.5 Flash は 10 回/分・250 回/日、Flash-Lite は 15 回/分・1,000 回/日。
   予告なく変更されることがあるため、公式の Rate limits ページか AI Studio で最新値を確認する。
+  - 2026-09-19 時点では Rate limits ページに数値の記載がなく、AI Studio で確認する形になっていた。
+    gemini-3.6-flash で約 25 秒間に 6 回送ったところで回数の上限（HTTP 429）になった。
+- **gemini-2.5-flash は新規利用者には提供終了**（2026-09-19 に API が 404 を返し、gemini-3.6-flash を案内した）。
+  モデル一覧のページでは「安定版」と表示されていても使えないことがあるため、採用前に実際に呼び出して確認する。
 - プロジェクトで課金を有効にすると無料枠は使えなくなる。
-- 無料枠で送信した内容は、Google のサービス改善に使われる可能性がある（未確認）。
+- 無料枠で送信した内容は、Google の製品改善に使われる（料金ページに明記。2026-09-16 更新分で確認）。
 - Claude の Pro プランを回答エンジンに使う案は不採用。
   理由：Pro には API の利用権が含まれない。`claude -p` を経由する方法は、規約上グレーなうえ（特に本人以外が使う場合）、
   応答が遅く、開発用の利用枠を消費する。Claude を使う場合は API 契約（従量課金）で行う。

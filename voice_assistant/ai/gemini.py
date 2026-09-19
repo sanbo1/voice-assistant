@@ -10,6 +10,7 @@ import requests
 
 from ..config import GeminiConfig
 from .base import AiError, Message
+from .fallback import FallbackChatClient
 from .prompt import system_instruction
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -17,6 +18,10 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-3.6-flash"
 # 既定のモデルで使う思考の量。応答が速く（確認時 1.6〜3.3 秒）、答えの質も十分だった
 DEFAULT_THINKING_LEVEL = "minimal"
+# 既定のモデルが上限などで使えないときに、順に使う予備のモデル（2026-09-19 に 1 回ずつ送信して使えることを確認）。
+# 無料枠の 1 日の上限はモデルごと（gemini-3.6-flash は 20 回/日だった）。
+# gemini-3.8-flash は混雑（503）、gemini-3.7-flash は時間切れだったため入れていない。
+DEFAULT_FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
 
 
 def build_request(
@@ -66,13 +71,44 @@ def _error_message(response: requests.Response) -> str:
         return response.text[:200]
 
 
+def quota_kind(data: dict) -> str | None:
+    """回数上限（HTTP 429）の応答から、上限の種類（"day"：1 日あたり、"minute"：1 分あたり）を判断する。"""
+    for detail in (data.get("error") or {}).get("details") or []:
+        for violation in detail.get("violations") or []:
+            quota_id = str(violation.get("quotaId", ""))
+            if "PerDay" in quota_id:
+                return "day"
+            if "PerMinute" in quota_id:
+                return "minute"
+    return None
+
+
+def quota_details(data: dict) -> str:
+    """回数上限（HTTP 429）の応答から、どの上限か・上限値・再試行までの時間を取り出す（会話ログ用）。"""
+    error = data.get("error") or {}
+    items = []
+    for detail in error.get("details") or []:
+        kind = str(detail.get("@type", ""))
+        if kind.endswith("QuotaFailure"):
+            for violation in detail.get("violations") or []:
+                name = violation.get("quotaId") or violation.get("quotaMetric")
+                if name:
+                    value = violation.get("quotaValue")
+                    items.append(f"上限の種類：{name}" + (f"（上限値 {value}）" if value else ""))
+        elif kind.endswith("RetryInfo") and detail.get("retryDelay"):
+            items.append(f"再試行まで：{detail['retryDelay']}")
+    if not items and error.get("message"):
+        items.append(" ".join(str(error["message"]).split())[:200])
+    return "、".join(items)
+
+
 class GeminiClient:
     def __init__(
         self,
         api_key: str,
         model: str = DEFAULT_MODEL,
         *,
-        timeout: float = 20.0,
+        timeout: float = 10.0,  # 音声で待たせすぎないように（ふだんの応答は 1〜3 秒）。時間切れなら予備のモデルで答え直す
         thinking_budget: int | None = None,
         thinking_level: str | None = None,
         session: requests.Session | None = None,
@@ -105,7 +141,16 @@ class GeminiClient:
             raise AiError(f"Gemini に接続できませんでした（{type(e).__name__}）") from None
 
         if response.status_code == 429:
-            raise AiError("利用回数の上限に達しました（無料枠の制限）", status=429)
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            details = quota_details(data)
+            raise AiError(
+                "利用回数の上限に達しました（無料枠の制限" + (f"。{details}" if details else "") + "）",
+                status=429,
+                quota=quota_kind(data),
+            )
         if response.status_code != 200:
             raise AiError(
                 f"Gemini がエラーを返しました（HTTP {response.status_code}：{_error_message(response)}）",
@@ -134,3 +179,19 @@ def client_from_config(
     if thinking_level is None and thinking_budget is None and model == DEFAULT_MODEL:
         thinking_level = DEFAULT_THINKING_LEVEL
     return GeminiClient(config.api_key, model, thinking_level=thinking_level, thinking_budget=thinking_budget)
+
+
+def chat_client_from_config(
+    config: GeminiConfig, on_status: Callable[[str], None] = lambda text: None
+) -> FallbackChatClient:
+    """設定（.env）から、優先のモデルと予備のモデルを順に使う ChatClient を作る。
+
+    予備のモデルは、それぞれのモデルの既定の思考の量で使う（思考の量の指定はモデルによって使える値が違うため）。
+    """
+    primary = client_from_config(config)
+    names = DEFAULT_FALLBACK_MODELS if config.fallback_models is None else config.fallback_models
+    models: list[tuple[str, GeminiClient]] = [(primary.model, primary)]
+    for name in names:
+        if name not in (m for m, _ in models):
+            models.append((name, GeminiClient(config.api_key, name)))
+    return FallbackChatClient(models, on_status=on_status)

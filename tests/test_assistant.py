@@ -1,5 +1,5 @@
 from voice_assistant.ai import AiError
-from voice_assistant.assistant import AI_ERROR_MESSAGE, RATE_LIMIT_MESSAGE, reply_or_error_message
+from voice_assistant.assistant import AI_ERROR_MESSAGE, DAILY_LIMIT_MESSAGE, RATE_LIMIT_MESSAGE, reply_or_error_message
 from voice_assistant.history import ConversationHistory
 
 
@@ -19,7 +19,7 @@ class FakeLog:
     def __init__(self):
         self.lines = []
 
-    def reply(self, text):
+    def reply(self, text, model=None):
         self.lines.append(("reply", text))
 
     def error(self, text):
@@ -54,3 +54,28 @@ def test_rate_limit_message_and_history_unchanged():
 def test_other_ai_error_message():
     answer = reply_or_error_message(FakeAi(AiError("接続できません")), ConversationHistory(), "質問", FakeLog())
     assert answer == AI_ERROR_MESSAGE
+
+
+def test_daily_limit_message():
+    answer = reply_or_error_message(FakeAi(AiError("上限", status=429, quota="day")), ConversationHistory(), "質問", FakeLog())
+    assert answer == DAILY_LIMIT_MESSAGE
+
+
+class FakeFallbackAi(FakeAi):
+    primary = "main-model"
+
+    def __init__(self, result, last_model):
+        super().__init__(result)
+        self.last_model = last_model
+
+
+class LabelLog(FakeLog):
+    def reply(self, text, model=None):
+        self.lines.append(("reply", text, model))
+
+
+def test_reply_is_labeled_only_when_fallback_model_answered():
+    log = LabelLog()
+    reply_or_error_message(FakeFallbackAi("A", "main-model"), ConversationHistory(), "q", log)
+    reply_or_error_message(FakeFallbackAi("B", "lite-model"), ConversationHistory(), "q", log)
+    assert log.lines == [("reply", "A", None), ("reply", "B", "lite-model")]

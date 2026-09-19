@@ -39,3 +39,9 @@ def test_load_gemini_config_defaults():
 
 def test_gemini_config_repr_hides_api_key():
     assert "secret-key" not in repr(GeminiConfig(api_key="secret-key", model="m"))
+
+
+def test_load_gemini_fallback_models():
+    assert load_gemini_config({}).fallback_models is None
+    assert load_gemini_config({"GEMINI_FALLBACK_MODELS": " a , b ,"}).fallback_models == ("a", "b")
+    assert load_gemini_config({"GEMINI_FALLBACK_MODELS": "none"}).fallback_models == ()

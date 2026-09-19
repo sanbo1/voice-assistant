@@ -82,7 +82,7 @@ tools/deploy.sh raspi-voice
 - Pi 側の上記のものはいったん消してから送り直すため、PC で削除したファイルは Pi からも消える。
   `venv/`・`.env`・`models/`・`recordings/` には触らない。
 
-## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・モデル・WirePlumber の設定・.env のひな形）
+## 5. 実行環境の準備（apt パッケージ・venv・Python パッケージ・モデル・WirePlumber の設定・自動起動・.env のひな形）
 
 ```bash
 ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
@@ -98,7 +98,8 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
      zip は同じ名前のフォルダに展開する（`venv/bin/python -m zipfile -e <zip> models/`）
   5. `tools/pi-config/wireplumber/` の設定を `~/.config/wireplumber/main.lua.d/` に置き、変わった場合は
      `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
-  6. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
+  6. 自動起動のサービス（`tools/pi-config/systemd/`）を `~/.config/systemd/user/` に置き、有効にする（10 を参照）
+  7. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |
 |---|---|---|
@@ -150,6 +151,9 @@ nano ~/voice-assistant/.env
   **複数台で同じキー（同じプロジェクト）を使うと、無料枠の回数制限を全台で分け合う**ことになる。
 - `GEMINI_MODEL` / `GEMINI_THINKING_LEVEL`：空なら既定（gemini-3.6-flash、思考 minimal）。
   既定のモデルが使えなくなった場合は、AI Studio で使えるモデルを確かめて記入する。
+- `GEMINI_FALLBACK_MODELS`：予備のモデル（カンマ区切り）。空なら既定（gemini-3.5-flash-lite、gemini-3.1-flash-lite）。
+  無料枠の 1 日の上限はモデルごと（gemini-3.6-flash は 20 回/日だった）。上限に達したモデルは 1 時間ごとに確認し、
+  回復したら優先のモデルに戻る。切り替えは会話ログの「状態」に、予備のモデルでの返答は「返答（モデル名）」と書かれる。
 - `AUDIO_INPUT_DEVICE` / `AUDIO_OUTPUT_DEVICE`：空なら既定のデバイス。機体ごとに変える場合に記入する。
 
 ## 7. モデルのダウンロード
@@ -181,6 +185,7 @@ nano ~/voice-assistant/.env
 | 既定の出力先 | `wpctl status` / `wpctl set-default <番号>` | HDMI と USB スピーカーを両方つなぐ場合 |
 | HDMI の音声出力を休止させない | `~/.config/wireplumber/main.lua.d/`（`tools/setup_pi.sh` が配置） | HDMI で音を出す機体のみ効く |
 | 画面の自動消灯をオフ | `sudo raspi-config nonint do_blanking 1`（5 の「画面の自動消灯」） | HDMI のスピーカーを使う機体のみ |
+| ログインなしでの自動起動（linger） | `sudo loginctl enable-linger <ユーザー名>`（10 の「自動起動」） | ― |
 | カーネルのページサイズ | `/boot/firmware/config.txt` | 標準（16KB）から変えた場合のみ記録する |
 
 ## 9. 動作確認
@@ -208,7 +213,38 @@ venv/bin/python scripts/05_speak.py
 
 ## 10. 自動起動
 
-（段階 3 で追加する）
+音声アシスタントは systemd の**ユーザーサービス**として動かす（音の入出力に使う PipeWire がユーザーごとに動くため）。
+設定ファイルは `tools/pi-config/systemd/voice-assistant.service`。`tools/setup_pi.sh` が `~/.config/systemd/user/` に
+置いて自動起動を有効にする。
+
+**ログインしなくても起動させる（linger）**：ユーザーサービスは通常、ログインしたときに動き出す。電源を入れるだけで
+（モニターやログインなしで）起動させるため、linger を有効にする。システムの設定なので `setup_pi.sh` には含めず、手で実行する。
+
+```bash
+ssh raspi-voice 'sudo loginctl enable-linger $(id -un)'
+```
+
+- 確認：`loginctl show-user $(id -un) -p Linger` が `Linger=yes`。
+- linger を有効にすると、Pi の起動時にユーザーのサービス（PipeWire・WirePlumber・音声アシスタント）が動き出す。
+  デスクトップに自動ログインした場合も同じサービスを使うため、二重には起動しない。
+
+**操作**（PC から。Pi 上では `ssh raspi-voice` を付けずに実行する）
+
+| 操作 | コマンド |
+|---|---|
+| 状態を見る | `ssh raspi-voice 'systemctl --user status voice-assistant'` |
+| 止める・起動する・再起動する | `ssh raspi-voice 'systemctl --user stop voice-assistant'`（`start`・`restart`） |
+| 自動起動をやめる・戻す | `ssh raspi-voice 'systemctl --user disable voice-assistant'`（`enable`） |
+| 技術的なログ（エラーの詳細、応答時間） | `ssh raspi-voice 'journalctl _SYSTEMD_USER_UNIT=voice-assistant.service -n 50'` |
+| 会話ログ | Pi の `~/voice-assistant/logs/conversation.log`（「付録：会話ログをモニターに表示する」） |
+
+- `tools/deploy.sh` は、サービスが動いていれば配置のあとに再起動する（新しいコードがすぐ反映される）。
+- 技術的なログは `journalctl --user -u voice-assistant` では見られない（この環境ではユーザーごとのログファイルが
+  作られず、システム全体のログに記録されるため。2026-09-19 確認）。表のとおり `_SYSTEMD_USER_UNIT=` で絞り込む。
+- **手動で試すとき**（`venv/bin/python -m voice_assistant` や `scripts/` のスクリプト）は、先にサービスを止める。
+  止めずに試すと、2 つが同時にマイクを聞き、話し出してしまう。試し終わったら `start` で戻す。
+- エラーで止まった場合は 10 秒後に起動し直す。5 分間に 5 回続けて止まった場合は再起動をやめる
+  （`.env` の API キーの未記入など）。原因を直したら `systemctl --user restart voice-assistant` で起動する。
 
 ---
 
@@ -227,6 +263,8 @@ ssh raspi-voice 'cp ~/voice-assistant/tools/pi-config/desktop/voice-assistant-lo
   `tools/pi-config/conversation-terminal/` の lxterminal の設定を読ませているため、ほかのターミナルには影響しない。
   大きさを変えるときは、その設定ファイルの `fontname` を直してアイコンをコピーし直す。
 - 実行してよいか確認する画面が出た場合は「実行」を選ぶ。
+- `tools/show_conversation.sh` を更新して配置した場合は、開いているウィンドウを閉じて開き直す
+  （開いたままのウィンドウは、古い内容のまま動き続けるため）。
 - 画面に質問と返答が表示されるため、部屋にいる人には内容が見える。
 
 ## 付録：読み上げの誤読を直す（置き換え表）

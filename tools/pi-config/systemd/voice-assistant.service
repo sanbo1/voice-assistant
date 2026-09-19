@@ -1,0 +1,24 @@
+# voice-assistant：音声アシスタントを自動起動する systemd のユーザーサービス。
+# tools/setup_pi.sh が ~/.config/systemd/user/ に置いて有効にする。
+# ログインしなくても起動させるには、linger を有効にする（docs/setup.md 参照）。
+# 操作：systemctl --user status|stop|start|restart voice-assistant ／ ログ：journalctl _SYSTEMD_USER_UNIT=voice-assistant.service
+[Unit]
+Description=Voice assistant (wake word, speech recognition, Gemini, speech synthesis)
+# 音の入出力に PipeWire（ユーザーサービス）を使う
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+# 5 分間に 5 回続けて止まったら、再起動を繰り返さない（API キーの未記入などで延々と再起動しないように）
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+WorkingDirectory=%h/voice-assistant
+ExecStart=%h/voice-assistant/venv/bin/python -m voice_assistant
+Environment=PYTHONUNBUFFERED=1
+# onnxruntime のテレメトリを止める（voice_assistant/__init__.py でも設定している。念のため二重に）
+Environment=ORT_DISABLE_TELEMETRY=1
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

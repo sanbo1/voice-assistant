@@ -6,6 +6,7 @@
 # Pi の ~/voice-assistant/ にある DEPLOY_ITEMS をいったん消してから送り直すため、
 # PC 側で削除・名前変更したファイルは Pi からも消える。
 # venv・.env・models・recordings など、DEPLOY_ITEMS 以外のものには触らない。
+# 音声アシスタントのサービスが動いている場合は、配置後に再起動する。
 set -euo pipefail
 
 HOST="${1:-raspi-voice}"
@@ -34,5 +35,10 @@ tar -cf - --exclude='__pycache__' --exclude='*.pyc' "${DEPLOY_ITEMS[@]}" |
             mv \".deploy-tmp/\$item\" .
         done
         rmdir .deploy-tmp
-        chmod +x tools/*.sh"
-echo "配置しました。初回や requirements.txt・tools/apt-packages.txt を変えたときは、Pi 上で tools/setup_pi.sh を実行してください。"
+        chmod +x tools/*.sh
+        # 音声アシスタントのサービスが動いていれば、新しいコードで起動し直す
+        if systemctl --user is-active --quiet voice-assistant 2>/dev/null; then
+            systemctl --user restart voice-assistant
+            echo '動いていた音声アシスタントのサービスを再起動しました'
+        fi"
+echo "配置しました。初回や requirements.txt・tools/apt-packages.txt などを変えたときは、Pi 上で tools/setup_pi.sh を実行してください。"

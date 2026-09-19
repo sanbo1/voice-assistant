@@ -12,11 +12,16 @@ class Message:
 
 
 class AiError(Exception):
-    """AI の呼び出しに失敗した。メッセージはそのまま利用者に見せられる文言にする。"""
+    """AI の呼び出しに失敗した。メッセージはそのまま利用者に見せられる文言にする。
 
-    def __init__(self, message: str, *, status: int | None = None):
+    status は HTTP の状態コード（時間切れ・接続失敗では None）。
+    quota は回数上限（429）の種類："day"（1 日あたり）、"minute"（1 分あたり）、不明なら None。
+    """
+
+    def __init__(self, message: str, *, status: int | None = None, quota: str | None = None):
         super().__init__(message)
         self.status = status
+        self.quota = quota
 
 
 class ChatClient(Protocol):

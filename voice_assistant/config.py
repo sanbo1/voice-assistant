@@ -53,6 +53,17 @@ class GeminiConfig:
     api_key: str = field(default="", repr=False)  # 表示やログに API キーが出ないようにする
     model: str | None = None  # None なら既定のモデル
     thinking_level: str | None = None  # None なら、既定のモデルのときだけ既定の思考の量を使う
+    fallback_models: tuple[str, ...] | None = None  # None なら既定の予備のモデル、() なら予備を使わない
+
+
+def parse_model_list(value: str | None) -> tuple[str, ...] | None:
+    """カンマ区切りのモデル名。空なら None（既定を使う）、"none" なら予備を使わない（空のタプル）。"""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.lower() == "none":
+        return ()
+    return tuple(name.strip() for name in value.split(",") if name.strip())
 
 
 def load_gemini_config(env: Mapping[str, str] = os.environ) -> GeminiConfig:
@@ -60,4 +71,5 @@ def load_gemini_config(env: Mapping[str, str] = os.environ) -> GeminiConfig:
         api_key=(env.get("GEMINI_API_KEY") or "").strip(),
         model=(env.get("GEMINI_MODEL") or "").strip() or None,
         thinking_level=(env.get("GEMINI_THINKING_LEVEL") or "").strip() or None,
+        fallback_models=parse_model_list(env.get("GEMINI_FALLBACK_MODELS")),
     )

@@ -4,8 +4,19 @@ import pytest
 import requests
 
 from voice_assistant.ai import AiError, Message
-from voice_assistant.ai.gemini import API_BASE, GeminiClient, build_request, parse_response
+from voice_assistant.ai.gemini import (
+    API_BASE,
+    DEFAULT_FALLBACK_MODELS,
+    DEFAULT_MODEL,
+    GeminiClient,
+    build_request,
+    chat_client_from_config,
+    parse_response,
+    quota_details,
+    quota_kind,
+)
 from voice_assistant.ai.prompt import system_instruction
+from voice_assistant.config import GeminiConfig
 
 
 def test_build_request_maps_roles_and_appends_question():
@@ -135,3 +146,63 @@ def test_reply_connection_error():
 def test_missing_api_key():
     with pytest.raises(AiError, match="GEMINI_API_KEY"):
         GeminiClient("")
+
+
+QUOTA_BODY = {"error": {
+    "code": 429,
+    "message": "You exceeded your current quota.",
+    "status": "RESOURCE_EXHAUSTED",
+    "details": [
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+            {"quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+             "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier", "quotaValue": "20"},
+        ]},
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "35s"},
+    ],
+}}
+
+
+def test_quota_details():
+    assert quota_details(QUOTA_BODY) == (
+        "上限の種類：GenerateRequestsPerDayPerProjectPerModel-FreeTier（上限値 20）、再試行まで：35s"
+    )
+
+
+def test_quota_details_falls_back_to_message():
+    assert quota_details({"error": {"message": "Resource\n exhausted"}}) == "Resource exhausted"
+    assert quota_details({}) == ""
+
+
+def test_reply_rate_limited_includes_quota_details():
+    client, _ = make_client(FakeResponse(429, QUOTA_BODY))
+    with pytest.raises(AiError, match="PerDay.*上限値 20.*35s") as e:
+        client.reply("質問")
+    assert e.value.status == 429
+
+
+def test_quota_kind():
+    assert quota_kind(QUOTA_BODY) == "day"
+    minute = {"error": {"details": [{"violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}]}]}}
+    assert quota_kind(minute) == "minute"
+    assert quota_kind({}) is None
+
+
+def test_reply_rate_limited_sets_quota_kind():
+    client, _ = make_client(FakeResponse(429, QUOTA_BODY))
+    with pytest.raises(AiError) as e:
+        client.reply("質問")
+    assert e.value.quota == "day"
+
+
+def test_chat_client_from_config_orders_models():
+    config = GeminiConfig(api_key="k", model=None, fallback_models=("lite-a", "gemini-3.6-flash", "lite-b"))
+    client = chat_client_from_config(config)
+    assert [m.name for m in client._models] == ["gemini-3.6-flash", "lite-a", "lite-b"]
+    assert client.primary == "gemini-3.6-flash"
+
+
+def test_chat_client_from_config_defaults_and_none():
+    default = chat_client_from_config(GeminiConfig(api_key="k"))
+    assert [m.name for m in default._models] == [DEFAULT_MODEL, *DEFAULT_FALLBACK_MODELS]
+    only_primary = chat_client_from_config(GeminiConfig(api_key="k", fallback_models=()))
+    assert [m.name for m in only_primary._models] == [DEFAULT_MODEL]

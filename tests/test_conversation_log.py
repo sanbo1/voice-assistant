@@ -43,3 +43,11 @@ def test_two_logs_do_not_mix(tmp_path):
     b.close()
     assert read_lines(tmp_path / "a.log")[0].endswith("状態：A")
     assert read_lines(tmp_path / "b.log")[0].endswith("状態：B")
+
+
+def test_reply_with_model_label(tmp_path):
+    path = tmp_path / "conversation.log"
+    log = ConversationLog(path)
+    log.reply("琵琶湖です。", model="gemini-3.5-flash-lite")
+    log.close()
+    assert read_lines(path)[0].endswith("返答（gemini-3.5-flash-lite）：琵琶湖です。")

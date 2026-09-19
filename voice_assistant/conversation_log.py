@@ -41,8 +41,9 @@ class ConversationLog:
     def heard(self, text: str) -> None:
         self._write("聞き取り", text or "（聞き取れませんでした）")
 
-    def reply(self, text: str) -> None:
-        self._write("返答", text)
+    def reply(self, text: str, model: str | None = None) -> None:
+        """model を渡すと「返答（モデル名）」と書く（予備のモデルで答えたとき用）。"""
+        self._write(f"返答（{model}）" if model else "返答", text)
 
     def error(self, text: str) -> None:
         self._write("エラー", text)

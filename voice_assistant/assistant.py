@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 STARTUP_MESSAGE = "音声アシスタントを起動しました。"
 NOT_HEARD_MESSAGE = "すみません、聞き取れませんでした。もう一度話しかけてください。"
 RATE_LIMIT_MESSAGE = "利用回数の上限に達しました。少し時間をおいてから話しかけてください。"
+DAILY_LIMIT_MESSAGE = "今日の利用回数の上限に達しました。しばらくしてから、もう一度お試しください。"
 AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでした。少し待ってから、もう一度お試しください。"
 # 想定外のエラーのあと、次に試すまで待つ秒数（マイクが外れたときなどに空回りしないため）
 ERROR_BACKOFF_SECONDS = 5.0
@@ -35,14 +36,20 @@ OUTPUT_WAKE_SECONDS = 2.0
 
 
 def reply_or_error_message(ai: ChatClient, history: ConversationHistory, text: str, log: ConversationLog) -> str:
-    """AI に質問して返答を返す。失敗したら利用者に伝える文言を返す。成功したときだけ履歴に残す。"""
+    """AI に質問して返答を返す。失敗したら利用者に伝える文言を返す。成功したときだけ履歴に残す。
+
+    ai が予備のモデルを持つ場合（FallbackChatClient）、予備のモデルで答えたときは会話ログにモデル名を付ける。
+    """
     try:
         answer = ai.reply(text, history.messages())
     except AiError as e:
         log.error(str(e))
-        return RATE_LIMIT_MESSAGE if e.status == 429 else AI_ERROR_MESSAGE
+        if e.status == 429:
+            return DAILY_LIMIT_MESSAGE if e.quota == "day" else RATE_LIMIT_MESSAGE
+        return AI_ERROR_MESSAGE
     history.add(text, answer)
-    log.reply(answer)
+    model = getattr(ai, "last_model", None)
+    log.reply(answer, model if model and model != getattr(ai, "primary", model) else None)
     return answer
 
 

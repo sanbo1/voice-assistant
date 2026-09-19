@@ -4,7 +4,7 @@ import logging
 import sys
 
 from .ai import AiError
-from .ai.gemini import client_from_config
+from .ai.gemini import chat_client_from_config
 from .assistant import Assistant
 from .config import load_audio_config, load_env_file, load_gemini_config
 from .conversation_log import ConversationLog
@@ -16,7 +16,8 @@ def main() -> int:
     # 手動で起動したとき（端末から実行したとき）は、会話ログを画面にも表示する
     log = ConversationLog(echo=sys.stdout.isatty())
     try:
-        ai = client_from_config(load_gemini_config())
+        # 優先のモデルと予備のモデルを順に使う。切り替えたときは会話ログの「状態」に書く
+        ai = chat_client_from_config(load_gemini_config(), on_status=log.status)
         Assistant(ai, audio_config=load_audio_config(), log=log).run()
     except AiError as e:
         log.error(str(e))

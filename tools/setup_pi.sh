@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、WirePlumber の設定、.env のひな形。
+# Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、WirePlumber の設定、
+# 自動起動（systemd のユーザーサービス）、.env のひな形。
 # 何度実行してもよい（導入済みのものはそのまま。.env があれば触らない）。
 #
 # 使い方（Pi 上で）：bash ~/voice-assistant/tools/setup_pi.sh
@@ -72,6 +73,26 @@ else
     echo "配置しました：$wp_dir/$(basename "$wp_src")"
     echo "WirePlumber を再起動します（HDMI モニターが一瞬消えることがあります）"
     systemctl --user restart wireplumber
+fi
+
+echo "== 自動起動（systemd のユーザーサービス）"
+unit_src="tools/pi-config/systemd/voice-assistant.service"
+unit_dir="$HOME/.config/systemd/user"
+if cmp -s "$unit_src" "$unit_dir/voice-assistant.service"; then
+    echo "設定済み"
+else
+    mkdir -p "$unit_dir"
+    cp "$unit_src" "$unit_dir/"
+    systemctl --user daemon-reload
+    echo "配置しました：$unit_dir/voice-assistant.service"
+    if systemctl --user is-active --quiet voice-assistant; then
+        systemctl --user restart voice-assistant
+        echo "動いていたサービスを再起動しました"
+    fi
+fi
+if ! systemctl --user is-enabled --quiet voice-assistant; then
+    systemctl --user enable voice-assistant
+    echo "自動起動を有効にしました（次に Pi を起動したときから。今すぐ起動するには：systemctl --user start voice-assistant）"
 fi
 
 echo "== .env"

@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from voice_assistant.ai import AiError, Message  # noqa: E402
-from voice_assistant.ai.gemini import DEFAULT_MODEL, DEFAULT_THINKING_LEVEL, GeminiClient  # noqa: E402
+from voice_assistant.ai.gemini import DEFAULT_MODEL, client_from_config  # noqa: E402
 from voice_assistant.config import load_env_file, load_gemini_config  # noqa: E402
 
 # 手順 4 で実際に起きた誤認識（カッコ内が実際の発話）を含める
@@ -39,20 +39,15 @@ def main() -> int:
     args = parser.parse_args()
 
     load_env_file()
-    config = load_gemini_config()
-    model = args.model or config.model or DEFAULT_MODEL
-    thinking_level = args.thinking_level or config.thinking_level
-    if thinking_level is None and args.thinking_budget is None and model == DEFAULT_MODEL:
-        thinking_level = DEFAULT_THINKING_LEVEL
     try:
-        client = GeminiClient(config.api_key, model, thinking_budget=args.thinking_budget,
-                              thinking_level=thinking_level)
+        client = client_from_config(load_gemini_config(), model=args.model, thinking_level=args.thinking_level,
+                                    thinking_budget=args.thinking_budget)
     except AiError as e:
         print(f"エラー：{e}")
         return 1
-    thinking = [f"budget={args.thinking_budget}"] if args.thinking_budget is not None else []
-    thinking += [f"level={thinking_level}"] if thinking_level else []
-    print(f"モデル：{model}／思考：{'、'.join(thinking) or '既定'}")
+    thinking = [f"budget={client.thinking_budget}"] if client.thinking_budget is not None else []
+    thinking += [f"level={client.thinking_level}"] if client.thinking_level else []
+    print(f"モデル：{client.model}／思考：{'、'.join(thinking) or '既定'}")
 
     history: list[Message] = []
     failures = 0

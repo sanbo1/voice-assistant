@@ -63,6 +63,12 @@ class WakeWordDetector:
         self._gate = TriggerGate(threshold, round(cooldown_seconds * SAMPLE_RATE / FRAME_SAMPLES))
         self.last_score = 0.0
 
+    def reset(self) -> None:
+        """それまでの音声による状態を消す（マイクを開き直したときに呼ぶ）。"""
+        self._model.reset()
+        self._gate = TriggerGate(self._gate.threshold, self._gate.cooldown_frames)
+        self.last_score = 0.0
+
     def process(self, frame: np.ndarray) -> bool:
         """80ms 分（int16、16kHz、モノラル）の音声を渡し、ウェイクワードを検知したら True を返す。"""
         self.last_score = float(self._model.predict(frame)[self.name])

@@ -8,6 +8,7 @@ from datetime import datetime
 
 import requests
 
+from ..config import GeminiConfig
 from .base import AiError, Message
 from .prompt import system_instruction
 
@@ -82,14 +83,14 @@ class GeminiClient:
         self._api_key = api_key
         self.model = model
         self._timeout = timeout
-        self._thinking_budget = thinking_budget
-        self._thinking_level = thinking_level
+        self.thinking_budget = thinking_budget
+        self.thinking_level = thinking_level
         self._session = session or requests.Session()
         self._clock = clock
 
     def reply(self, user_text: str, history: Sequence[Message] = ()) -> str:
         body = build_request(
-            user_text, history, system_instruction(self._clock()), self._thinking_budget, self._thinking_level
+            user_text, history, system_instruction(self._clock()), self.thinking_budget, self.thinking_level
         )
         try:
             response = self._session.post(
@@ -115,3 +116,21 @@ class GeminiClient:
         except ValueError:
             raise AiError("Gemini の返答を読み取れませんでした") from None
         return parse_response(data)
+
+
+def client_from_config(
+    config: GeminiConfig,
+    *,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    thinking_budget: int | None = None,
+) -> GeminiClient:
+    """設定（.env）から GeminiClient を作る。引数で渡した値は設定より優先する。
+
+    思考の量を指定しないまま既定のモデルを使う場合は、既定の思考の量（DEFAULT_THINKING_LEVEL）にする。
+    """
+    model = model or config.model or DEFAULT_MODEL
+    thinking_level = thinking_level or config.thinking_level
+    if thinking_level is None and thinking_budget is None and model == DEFAULT_MODEL:
+        thinking_level = DEFAULT_THINKING_LEVEL
+    return GeminiClient(config.api_key, model, thinking_level=thinking_level, thinking_budget=thinking_budget)

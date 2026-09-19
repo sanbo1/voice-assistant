@@ -1,0 +1,8 @@
+# voice-assistant：HDMI の音声出力がない状態を見つけて直す（tools/hdmi_audio_watch.sh）。
+# voice-assistant-hdmi-watch.timer から定期的に実行される。tools/setup_pi.sh が配置する。
+[Unit]
+Description=Voice assistant: restore HDMI audio output when the monitor was off at boot
+
+[Service]
+Type=oneshot
+ExecStart=%h/voice-assistant/tools/hdmi_audio_watch.sh

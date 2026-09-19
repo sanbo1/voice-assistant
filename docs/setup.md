@@ -98,7 +98,8 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
      zip は同じ名前のフォルダに展開する（`venv/bin/python -m zipfile -e <zip> models/`）
   5. `tools/pi-config/wireplumber/` の設定を `~/.config/wireplumber/main.lua.d/` に置き、変わった場合は
      `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
-  6. 自動起動のサービス（`tools/pi-config/systemd/`）を `~/.config/systemd/user/` に置き、有効にする（10 を参照）
+  6. 自動起動のサービスと、HDMI の音声出力を見張るタイマー（`tools/pi-config/systemd/`）を `~/.config/systemd/user/` に置き、
+     有効にする（10 を参照）
   7. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |
@@ -186,6 +187,7 @@ nano ~/voice-assistant/.env
 | HDMI の音声出力を休止させない | `~/.config/wireplumber/main.lua.d/`（`tools/setup_pi.sh` が配置） | HDMI で音を出す機体のみ効く |
 | 画面の自動消灯をオフ | `sudo raspi-config nonint do_blanking 1`（5 の「画面の自動消灯」） | HDMI のスピーカーを使う機体のみ |
 | ログインなしでの自動起動（linger） | `sudo loginctl enable-linger <ユーザー名>`（10 の「自動起動」） | ― |
+| HDMI の音声出力の見張り | `voice-assistant-hdmi-watch.timer`（`tools/setup_pi.sh` が有効にする） | USB スピーカーに替えたら止めてよい |
 | カーネルのページサイズ | `/boot/firmware/config.txt` | 標準（16KB）から変えた場合のみ記録する |
 
 ## 9. 動作確認
@@ -243,6 +245,15 @@ ssh raspi-voice 'sudo loginctl enable-linger $(id -un)'
   作られず、システム全体のログに記録されるため。2026-09-19 確認）。表のとおり `_SYSTEMD_USER_UNIT=` で絞り込む。
 - **手動で試すとき**（`venv/bin/python -m voice_assistant` や `scripts/` のスクリプト）は、先にサービスを止める。
   止めずに試すと、2 つが同時にマイクを聞き、話し出してしまう。試し終わったら `start` で戻す。
+**HDMI の音声出力の見張り（タイマー）**：Pi の起動時にモニターの電源が入っていないと、WirePlumber が HDMI の
+音声出力を使えないと判断し、あとでモニターがついても音が出ない（2026-09-19 確認。ケーブルの挿し直しでは直らない）。
+`voice-assistant-hdmi-watch.timer` が起動 60 秒後から 30 秒ごとに `tools/hdmi_audio_watch.sh` を実行し、モニターが
+つながっているのに HDMI の音声出力がなければ、WirePlumber と音声アシスタントを再起動する（会話ログの「状態」に記録。
+直したあと 10 分間は再び直しに行かない）。モニターの電源を入れてから 30 秒ほどで、「起動しました」と話せば直っている。
+
+- 手で直す場合：`ssh raspi-voice 'systemctl --user restart wireplumber && systemctl --user restart voice-assistant'`
+- USB スピーカーに替えた場合は不要：`systemctl --user disable --now voice-assistant-hdmi-watch.timer`
+
 - エラーで止まった場合は 10 秒後に起動し直す。5 分間に 5 回続けて止まった場合は再起動をやめる
   （`.env` の API キーの未記入など）。原因を直したら `systemctl --user restart voice-assistant` で起動する。
 

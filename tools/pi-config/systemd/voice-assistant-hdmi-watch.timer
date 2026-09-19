@@ -1,0 +1,13 @@
+# voice-assistant：起動 60 秒後から 30 秒ごとに、HDMI の音声出力があるか確かめる。
+# tools/setup_pi.sh が配置して有効にする。USB スピーカーに替えたら止めてよい：
+#   systemctl --user disable --now voice-assistant-hdmi-watch.timer
+[Unit]
+Description=Voice assistant: check HDMI audio output every 30 seconds
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

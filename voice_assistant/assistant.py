@@ -101,6 +101,8 @@ class Assistant:
                     break
             audio.play_nowait(self._chime, audio.SAMPLE_RATE, device=self._audio.output_device)
             logger.info("ウェイクワードを検知（スコア %.2f）", self._detector.last_score)
+            # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
+            self._log.status(f"聞き取り中…話してください（ウェイクワードを検知、スコア {self._detector.last_score:.2f}）")
 
             self._vad.reset()
             recognition = self._recognizer.start()

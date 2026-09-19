@@ -432,3 +432,71 @@ models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 models/silero_vad/silero_vad.onnx  1a153a22f4509e29
 models/vosk-model-small-ja-0.22.zip  efa092d280153a77
 ```
+
+## 2026-09-19：段階 3 の追加対応（聞き取り中の表示、HDMI の音声出力の自動復旧）
+
+- 結果：成功
+  - 会話ログに「聞き取り中…話してください（ウェイクワードを検知、スコア）」を出すようにした（音が出なくても話しかけるタイミングがわかる）
+  - Pi の起動時にモニターの電源が入っていないと、WirePlumber が HDMI の音声出力を使えないと判断したままになり、
+    音が出なくなることを確認（HDMI ケーブルの挿し直しでは直らず、WirePlumber の再起動で直る）
+  - `voice-assistant-hdmi-watch.timer`（起動 60 秒後から 30 秒ごと）を追加。モニターの電源を切ったまま Pi を起動し、
+    あとからモニターの電源を入れる手順で確認：起動 64.7 秒後に自動で WirePlumber と音声アシスタントを再起動し、
+    その後のチャイム・読み上げが聞こえた。
+    - 「起動しました」の読み上げは、モニターの電源を入れた直後と重なったため聞こえなかった（そのあとの音は正常）
+    - この回は、WirePlumber の起動（起動 13.0 秒後）がカーネルの画面認識（18.4 秒後）より早かったことが原因
+  - PC（Windows 11、Python 3.11.9）で pytest 112 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器・設定：前回と同じ（USB マイク、HDMI モニターのスピーカー、HDMI の休止なし、自動消灯オフ、linger 有効）
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+open-jtalk=1.11-3
+open-jtalk-mecab-naist-jdic=1.11-3
+hts-voice-nitech-jp-atr503-m001=1.05-7
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+srt==3.5.3
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+vosk==0.3.45
+websockets==17.1
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+models/vosk-model-small-ja-0.22.zip  efa092d280153a77
+```

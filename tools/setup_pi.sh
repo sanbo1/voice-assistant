@@ -50,6 +50,15 @@ while read -r dest url sha256; do
         exit 1
     fi
     echo "OK：$dest"
+    # zip は同じ名前のフォルダ（例：models/xxx.zip → models/xxx/）に展開する
+    if [[ "$dest" == *.zip ]] && [ ! -d "${dest%.zip}" ]; then
+        echo "展開します：$dest"
+        venv/bin/python -m zipfile -e "$dest" "$(dirname "$dest")"
+        if [ ! -d "${dest%.zip}" ]; then
+            echo "展開後のフォルダが見つかりません：${dest%.zip}" >&2
+            exit 1
+        fi
+    fi
 done < <(sed 's/#.*//' tools/models.txt | awk 'NF')
 
 echo "== WirePlumber の設定（HDMI の音声出力を休止させない）"

@@ -94,7 +94,8 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
   1. `tools/apt-packages.txt` のうち未導入のものを `sudo apt-get install` する
   2. `~/voice-assistant/venv` がなければ `python3 -m venv venv` で作る
   3. `venv/bin/pip install -r requirements.txt`
-  4. `tools/models.txt` のモデルのうち、ないものをダウンロードする。あるものも含めて SHA-256 を照合する
+  4. `tools/models.txt` のモデルのうち、ないものをダウンロードする。あるものも含めて SHA-256 を照合する。
+     zip は同じ名前のフォルダに展開する（`venv/bin/python -m zipfile -e <zip> models/`）
   5. `tools/pi-config/wireplumber/` の設定を `~/.config/wireplumber/main.lua.d/` に置き、変わった場合は
      `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
   6. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
@@ -140,6 +141,7 @@ nano ~/voice-assistant/.env
 | openwakeword/embedding_model.onnx | ウェイクワード（特徴量） | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
 | openwakeword/hey_jarvis_v0.1.onnx | ウェイクワード「hey jarvis」 | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
 | silero_vad/silero_vad.onnx | 発話区間の検出 | Silero VAD v6.2.1（公式リポジトリ） | 2.3MB | MIT |
+| vosk-model-small-ja-0.22.zip（展開後 `vosk-model-small-ja-0.22/`） | 音声認識（日本語） | Vosk 公式サイト | 48MB（展開後 95MB） | Apache 2.0 |
 
 - CC BY-NC-SA 4.0 は非商用に限る。モデルはリポジトリに含めない。
 - 入手先がなくなっていた場合に備え、動作中の機体の `models/` をバックアップしておくとよい。
@@ -167,12 +169,14 @@ venv/bin/python scripts/00_audio_check.py --list
 venv/bin/python scripts/00_audio_check.py
 venv/bin/python scripts/01_wakeword.py
 venv/bin/python scripts/02_record_utterance.py
+venv/bin/python scripts/03_transcribe.py --listen
 ```
 
 - `--list` で USB マイクと `default` が見えること。
 - 録音中に話しかけ、再生された声が聞き取れること（耳で確認）。録音は `recordings/audio-check.wav` に残る。
 - `01_wakeword.py` の実行中に「hey jarvis」と言うと「検知しました」と表示されること。Ctrl+C で終了する。
 - `02_record_utterance.py`：「hey jarvis」でお知らせ音が鳴り、続けて話した内容が話し終わりで止まって再生されること。
+- `03_transcribe.py --listen`：話した内容が文字で表示されること。
 - 確認できたら、PC から `ssh raspi-voice 'bash ~/voice-assistant/tools/env_report.sh'` を実行し、
   出力に確認した範囲と結果を書き足して [verified-environments.md](verified-environments.md) の末尾に追記する。
 

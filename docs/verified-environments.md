@@ -164,3 +164,65 @@ models/openwakeword/embedding_model.onnx  70d164290c1d095d
 models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 models/silero_vad/silero_vad.onnx  1a153a22f4509e29
 ```
+
+## 2026-09-19：段階 2 の手順 4（音声認識：Vosk 小型モデル）
+
+- 結果：成功（固有名詞などに誤認識あり）
+  - vosk 0.3.45 の Pi 用ライブラリは、ページサイズ 16KB のカーネルで問題なく読み込めた
+  - `scripts/03_transcribe.py --listen` で 6 回発話 → 完全一致 4 回（「五分後に教えて」の漢数字化を含む）
+    - 誤認識：「今って令和何年」→「今て例は何年」、「日本で一番高い山はどこ」→「日本で一番高い山とこう」
+  - 認識時間：2.5〜3.5 秒の発話に 1.6〜2.1 秒（話し終わってからまとめて認識した場合）。モデルの読み込み 0.7 秒
+    - 話しながら少しずつ認識させると、話し終わりから結果までは 0.04 秒（同じ録音で確認）。段階 3 でこの方式にする予定
+  - PC（Windows 11、Python 3.11.9）で pytest 39 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器：前回と同じ（USB マイク、HDMI モニターのスピーカー）
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+srt==3.5.3
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+vosk==0.3.45
+websockets==17.1
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+models/vosk-model-small-ja-0.22.zip  efa092d280153a77
+```

@@ -10,6 +10,7 @@ numpy==2.4.6
 python-dotenv==1.2.3
 openwakeword==0.6.0
 onnxruntime==1.30.0
+vosk==0.3.45
 
 # 間接的な依存（sounddevice → cffi → pycparser）
 cffi==2.1.1
@@ -31,6 +32,10 @@ certifi==2026.7.22
 # openwakeword が Linux で必ず入れる。このプロジェクトでは使わない（推論は onnxruntime）。
 # Python 3.12 以降向けの配布がないため、新しい OS では入らない可能性がある（docs/setup.md 参照）
 tflite-runtime==2.14.0; platform_system == "Linux"
+
+# 間接的な依存（vosk。cffi・requests・tqdm は上と共通）
+srt==3.5.3
+websockets==17.1
 
 # 間接的な依存（onnxruntime）
 flatbuffers==25.12.19

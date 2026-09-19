@@ -11,3 +11,7 @@ models/openwakeword/hey_jarvis_v0.1.onnx  https://github.com/dscripka/openWakeWo
 # Silero VAD v6.2.1（公式リポジトリの src/silero_vad/data/silero_vad.onnx）。ライセンス：MIT
 # 2026-09-19 取得。GitHub が公開している git のハッシュ（80c5592ef1f4…）と一致することを確認
 models/silero_vad/silero_vad.onnx  https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad.onnx  1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
+
+# Vosk の日本語の小型モデル（zip。setup_pi.sh が models/vosk-model-small-ja-0.22/ に展開する）。ライセンス：Apache 2.0
+# 2026-09-19 取得。公式のモデル一覧（model-list.json）の MD5（0e3163dd…）とサイズが一致することを確認
+models/vosk-model-small-ja-0.22.zip  https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip  efa092d280153a77615e9e0c7d7283e93e600de3d19d3bec686c57ef19d52eac

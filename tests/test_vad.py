@@ -102,3 +102,30 @@ def test_collect_input_ended_while_speaking():
     utterance = collect_utterance(frames, prob, Endpointer(CONFIG, FRAME_SECONDS))
     assert utterance.reason is EndReason.INPUT_ENDED
     assert collected_ids(utterance) == [0, 1, 2]
+
+
+class RecordingListener:
+    def __init__(self):
+        self.events = []
+
+    def accept(self, frame):
+        self.events.append(int(frame[0]))
+
+    def reset(self):
+        self.events.append("reset")
+
+
+def test_listener_receives_pre_roll_and_speech():
+    frames, prob = frames_and_probs([0.0, 0.0, 0.0, 0.9, 0.9, 0.1, 0.1, 0.1, 0.0])
+    listener = RecordingListener()
+    utterance = collect_utterance(frames, prob, Endpointer(CONFIG, FRAME_SECONDS), listener)
+    assert listener.events == collected_ids(utterance) == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_listener_is_reset_when_speech_is_discarded():
+    probs = [0.9, 0.1, 0.1, 0.1, 0.0, 0.9, 0.9, 0.1, 0.1, 0.1]
+    frames, prob = frames_and_probs(probs)
+    listener = RecordingListener()
+    utterance = collect_utterance(frames, prob, Endpointer(CONFIG, FRAME_SECONDS), listener)
+    # 取り消された 0〜2 のあとに reset、その後は集めた音声と同じ順
+    assert listener.events == [0, 1, 2, "reset"] + collected_ids(utterance)

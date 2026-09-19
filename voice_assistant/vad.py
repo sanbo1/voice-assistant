@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
@@ -124,12 +125,26 @@ class Utterance:
     reason: EndReason
 
 
+class UtteranceListener(Protocol):
+    """発話として集めた音声を、そのつど受け取る（話しながら音声認識に渡すため）。"""
+
+    def accept(self, frame: np.ndarray) -> None: ...
+
+    def reset(self) -> None:
+        """それまでに渡した音声が、短すぎる声として取り消された。"""
+        ...
+
+
 def collect_utterance(
     frames: Iterable[np.ndarray],
     speech_probability: Callable[[np.ndarray], float],
     endpointer: Endpointer,
+    listener: UtteranceListener | None = None,
 ) -> Utterance:
-    """フレームを読み進め、話し始めの少し前から話し終わりまでの音声を集める。"""
+    """フレームを読み進め、話し始めの少し前から話し終わりまでの音声を集める。
+
+    listener を渡すと、集めた音声を順に listener.accept() に渡す。取り消したときは listener.reset() を呼ぶ。
+    """
     pre_roll: deque[np.ndarray] = deque(maxlen=endpointer.pre_roll_frames)
     collected: list[np.ndarray] = []
     reason = EndReason.INPUT_ENDED
@@ -138,12 +153,19 @@ def collect_utterance(
         if endpointer.started:
             if not collected:
                 collected.extend(pre_roll)
+                if listener is not None:
+                    for earlier in pre_roll:
+                        listener.accept(earlier)
             collected.append(frame)
+            if listener is not None:
+                listener.accept(frame)
         else:
             if collected:
                 # 短すぎて取り消された音声は、次の話し始めの前の部分として扱う
                 pre_roll.extend(collected)
                 collected.clear()
+                if listener is not None:
+                    listener.reset()
             pre_roll.append(frame)
         if result is not None:
             reason = result

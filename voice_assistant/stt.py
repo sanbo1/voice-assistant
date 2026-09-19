@@ -27,7 +27,37 @@ def join_japanese_words(text: str) -> str:
     return re.sub(rf"(?<={_WIDE}) | (?={_WIDE})", "", text)
 
 
+class RecognitionStream:
+    """話しながら少しずつ音声を渡し、話し終わったら結果を受け取る（話し終わり後の待ち時間を短くするため）。
+
+    Vosk は発話の途中の間で結果を区切ることがあるため、区切られた結果もすべて集めてつなげる。
+    """
+
+    def __init__(self, recognizer):
+        self._recognizer = recognizer
+        self._texts: list[str] = []
+
+    def accept(self, frame: np.ndarray) -> None:
+        if self._recognizer.AcceptWaveform(np.asarray(frame, dtype="<i2").tobytes()):
+            self._texts.append(json.loads(self._recognizer.Result()).get("text", ""))
+
+    def reset(self) -> None:
+        """それまでに渡した音声を捨てる（短すぎる声として取り消されたとき）。"""
+        self._recognizer.Reset()
+        self._texts.clear()
+
+    def finish(self) -> str:
+        """結果を返す。聞き取れなかった場合は空文字。"""
+        self._texts.append(json.loads(self._recognizer.FinalResult()).get("text", ""))
+        text = join_japanese_words(" ".join(self._texts))
+        self._texts.clear()
+        return text
+
+
 class VoskRecognizer:
+    # 発話全体をまとめて認識するときに、少しずつ渡す長さ（RecognitionStream と同じ処理にするため）
+    _CHUNK_SAMPLES = 4000
+
     def __init__(self, model_dir: Path = DEFAULT_MODEL_DIR):
         import vosk
 
@@ -37,9 +67,13 @@ class VoskRecognizer:
         self._vosk = vosk
         self._model = vosk.Model(str(model_dir))
 
+    def start(self, sample_rate: int = SAMPLE_RATE) -> RecognitionStream:
+        """話しながら認識するための RecognitionStream を作る。"""
+        return RecognitionStream(self._vosk.KaldiRecognizer(self._model, sample_rate))
+
     def transcribe(self, samples: np.ndarray, sample_rate: int = SAMPLE_RATE) -> str:
         """発話全体（int16、モノラル）を文字にする。聞き取れなかった場合は空文字。"""
-        recognizer = self._vosk.KaldiRecognizer(self._model, sample_rate)
-        recognizer.AcceptWaveform(np.asarray(samples, dtype="<i2").tobytes())
-        result = json.loads(recognizer.FinalResult())
-        return join_japanese_words(result.get("text", ""))
+        stream = self.start(sample_rate)
+        for i in range(0, len(samples), self._CHUNK_SAMPLES):
+            stream.accept(samples[i:i + self._CHUNK_SAMPLES])
+        return stream.finish()

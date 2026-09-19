@@ -292,3 +292,69 @@ models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 models/silero_vad/silero_vad.onnx  1a153a22f4509e29
 models/vosk-model-small-ja-0.22.zip  efa092d280153a77
 ```
+
+## 2026-09-19：段階 2 の手順 6（音声合成：Open JTalk）
+
+- 結果：成功（声が少しこもって聞こえる点は改良の候補として残す）
+  - `scripts/05_speak.py` で手順 5 の Gemini の返答 3 文を読み上げ。漢数字（二千二十六年、令和八年）と算用数字（3776メートル）は正しく読まれた
+  - 合成時間：5.4〜8.1 秒の音声に 0.33〜0.48 秒（速さ 1.2 倍）。合成した WAV は標準出力で受け取り、ファイルに書かない
+  - 聞き取りの確認（HDMI モニターのスピーカー）：イントネーション・区切りは問題なし。速さは 1.2 倍が自然（既定を 1.2 に）
+  - 音量：合成直後は実効値 -22〜-24 dBFS と小さかったため、最大振幅 -1 dBFS に揃える処理を追加（実効値 -18 dBFS 前後）
+  - 誤読：「お手数」を「おてかず」と読んだため、読み上げ前に置き換える表（READINGS）を追加し「おてすう」になることを確認
+  - こもり：ポストフィルタ（-b）0.2〜0.6 を試したが改善せず、雑音が増えて音量も下がったため不採用（0.0 のまま）
+  - PC（Windows 11、Python 3.11.9）で pytest 66 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器：前回と同じ（USB マイク、HDMI モニターのスピーカー）
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+open-jtalk=1.11-3
+open-jtalk-mecab-naist-jdic=1.11-3
+hts-voice-nitech-jp-atr503-m001=1.05-7
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+srt==3.5.3
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+vosk==0.3.45
+websockets==17.1
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+models/vosk-model-small-ja-0.22.zip  efa092d280153a77
+```

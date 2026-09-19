@@ -54,7 +54,8 @@
   応答が遅く、開発用の利用枠を消費する。Claude を使う場合は API 契約（従量課金）で行う。
 
 ## 開発方法
-- Windows PC 上の Claude Code で開発し、scp で Pi の `~/voice-assistant/` に配置して実行・確認する。
+- Windows PC 上の Claude Code で開発し、`tools/deploy.sh` で Pi の `~/voice-assistant/` に配置して実行・確認する。
+  Pi 側の準備（apt・venv・pip・モデル・設定）は `tools/setup_pi.sh` で行う（手順は `docs/setup.md`）。
 - Pi への接続は SSH の鍵認証で行い、`~/.ssh/config` の別名 `raspi-voice` を使う。
 - リポジトリは GitHub の Private リポジトリで管理する。コミットと push はユーザーの指示があるときのみ行う。
 
@@ -65,3 +66,4 @@
      動かない場合は 4KB のカーネル（config.txt に `kernel=kernel8.img`）への切り替えを検討する（システム設定の変更のため事前に確認）。
 3. 統合：全体の処理をつなぎ、会話履歴を追加し、systemd で自動起動させる
 4. 改良：日本語の独自ワード、ウェイクワードなしで続けて話せる会話、AI の切り替えなど
+   - 音声合成の声が少しこもって聞こえる（2026-09-19）。USB スピーカーでの聞こえ方を確認し、必要なら声のデータ（MMDAgent の「メイ」など）や VOICEVOX を検討する

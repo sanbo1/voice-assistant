@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from voice_assistant.levels import peak_dbfs, rms_dbfs
+from voice_assistant.levels import normalize_peak, peak_dbfs, rms_dbfs
 
 
 def test_silence_is_minus_inf():
@@ -30,3 +30,17 @@ def test_half_scale_sine():
     # 振幅が半分なら -6.02 dB、正弦波の実効値はさらに -3.01 dB
     assert peak_dbfs(sine) == pytest.approx(-6.02, abs=0.01)
     assert rms_dbfs(sine) == pytest.approx(-9.03, abs=0.01)
+
+
+def test_normalize_peak_raises_quiet_audio():
+    quiet = (np.array([0, 1000, -2000, 500])).astype(np.int16)
+    loud = normalize_peak(quiet, -1.0)
+    assert loud.dtype == np.int16
+    assert peak_dbfs(loud) == pytest.approx(-1.0, abs=0.01)
+    # 形（比率）は変わらない（整数に丸めるため ±1 の誤差は許す）
+    assert abs(int(loud[2]) + 2 * int(loud[1])) <= 1
+
+
+def test_normalize_peak_keeps_silence():
+    silence = np.zeros(10, dtype=np.int16)
+    np.testing.assert_array_equal(normalize_peak(silence), silence)

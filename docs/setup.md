@@ -103,8 +103,14 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
 | apt パッケージ | 用途 | ライセンス |
 |---|---|---|
 | libportaudio2 | sounddevice（録音・再生）が使う | MIT 系（PortAudio License） |
+| open-jtalk（依存：libhtsengine1） | 音声合成 | BSD-3-clause |
+| open-jtalk-mecab-naist-jdic | 音声合成の辞書（約 105MB） | BSD-3-clause |
+| hts-voice-nitech-jp-atr503-m001 | 音声合成の声 | CC BY 3.0（下記） |
 
 - python3-venv・python3-pip は OS に最初から入っている（2025-05-13 のイメージで確認）。
+- 音声合成の声「HTS Voice NIT ATR503 M001」：Copyright (c) 2003-2012 Nagoya Institute of Technology,
+  Department of Computer Science / 2003-2008 Tokyo Institute of Technology。CC BY 3.0。
+  Debian では contrib 区分（作成に使われた HTK のライセンスが自由でないため）。bookworm の既定の apt 設定で入る。
 - Raspberry Pi OS は `/etc/pip.conf` で piwheels（Pi 向けのビルド済みパッケージ）を参照する設定になっている。
 - Python パッケージは `requirements.txt` のとおり、間接的な依存も含めて版を固定している。
   ライセンスはいずれも MIT・BSD・Apache-2.0・MPL-2.0（certifi、tqdm）のどれか（2026-09-19 に確認）。
@@ -173,6 +179,7 @@ venv/bin/python scripts/01_wakeword.py
 venv/bin/python scripts/02_record_utterance.py
 venv/bin/python scripts/03_transcribe.py --listen
 venv/bin/python scripts/04_ask_ai.py
+venv/bin/python scripts/05_speak.py
 ```
 
 - `--list` で USB マイクと `default` が見えること。
@@ -181,6 +188,7 @@ venv/bin/python scripts/04_ask_ai.py
 - `02_record_utterance.py`：「hey jarvis」でお知らせ音が鳴り、続けて話した内容が話し終わりで止まって再生されること。
 - `03_transcribe.py --listen`：話した内容が文字で表示されること。
 - `04_ask_ai.py`：用意した 4 つの質問に返答が表示されること（Gemini に 4 回送信する。.env の API キーが必要）。
+- `05_speak.py`：3 つの文章が読み上げられること（「お手数」が「おてすう」と読まれること）。
 - 確認できたら、PC から `ssh raspi-voice 'bash ~/voice-assistant/tools/env_report.sh'` を実行し、
   出力に確認した範囲と結果を書き足して [verified-environments.md](verified-environments.md) の末尾に追記する。
 

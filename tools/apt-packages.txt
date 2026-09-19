@@ -1,2 +1,5 @@
 # Pi に apt で入れるパッケージ（tools/setup_pi.sh が読む）。1 行に 1 つ。# 以降はコメント。
 libportaudio2    # sounddevice（録音・再生）が使う。PortAudio License（MIT 系）
+open-jtalk                       # 音声合成。BSD-3-clause
+open-jtalk-mecab-naist-jdic      # 音声合成の辞書。BSD-3-clause
+hts-voice-nitech-jp-atr503-m001  # 音声合成の声（名古屋工業大学ほか）。CC BY 3.0（Debian では contrib）

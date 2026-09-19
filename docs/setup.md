@@ -223,6 +223,9 @@ ssh raspi-voice 'cp ~/voice-assistant/tools/pi-config/desktop/voice-assistant-lo
 
 - ダブルクリックするとターミナルが開き、直近 50 行を表示したあと、新しいやり取りを自動で追加表示する
   （中身は `tools/show_conversation.sh`）。閉じても音声アシスタント本体は止まらない。
+- 文字は通常のターミナルより大きい（Monospace 25、ウィンドウは 70 桁 × 20 行。通常は 10、80 × 24）。このウィンドウだけ
+  `tools/pi-config/conversation-terminal/` の lxterminal の設定を読ませているため、ほかのターミナルには影響しない。
+  大きさを変えるときは、その設定ファイルの `fontname` を直してアイコンをコピーし直す。
 - 実行してよいか確認する画面が出た場合は「実行」を選ぶ。
 - 画面に質問と返答が表示されるため、部屋にいる人には内容が見える。
 

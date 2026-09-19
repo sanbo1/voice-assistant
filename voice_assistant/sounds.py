@@ -18,10 +18,19 @@ def tone(frequency: float, seconds: float, sample_rate: int, *, level_dbfs: floa
     return (wave * amplitude).astype(np.int16)
 
 
+def _two_tones(first_hz: float, second_hz: float, sample_rate: int, level_dbfs: float) -> np.ndarray:
+    return np.concatenate([
+        tone(first_hz, 0.07, sample_rate, level_dbfs=level_dbfs),
+        np.zeros(round(0.02 * sample_rate), dtype=np.int16),
+        tone(second_hz, 0.08, sample_rate, level_dbfs=level_dbfs),
+    ])
+
+
 def wake_chime(sample_rate: int, *, level_dbfs: float = -6.0) -> np.ndarray:
     """ウェイクワードを検知したときの音。低い音から高い音へ上がる 2 音（約 0.17 秒）。"""
-    return np.concatenate([
-        tone(880.0, 0.07, sample_rate, level_dbfs=level_dbfs),
-        np.zeros(round(0.02 * sample_rate), dtype=np.int16),
-        tone(1320.0, 0.08, sample_rate, level_dbfs=level_dbfs),
-    ])
+    return _two_tones(880.0, 1320.0, sample_rate, level_dbfs)
+
+
+def ready_chime(sample_rate: int, *, level_dbfs: float = -6.0) -> np.ndarray:
+    """ウェイクワードの待ち受けに戻ったときの音。wake_chime と逆に、高い音から低い音へ下がる 2 音。"""
+    return _two_tones(1320.0, 880.0, sample_rate, level_dbfs)

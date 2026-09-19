@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from voice_assistant.levels import peak_dbfs
-from voice_assistant.sounds import tone, wake_chime
+from voice_assistant.sounds import ready_chime, tone, wake_chime
 
 
 def test_tone_length_and_level():
@@ -28,3 +28,21 @@ def test_wake_chime_is_short():
 def test_wake_chime_level():
     assert peak_dbfs(wake_chime(16000)) == pytest.approx(-6.0, abs=0.1)
     assert peak_dbfs(wake_chime(16000, level_dbfs=-3.0)) == pytest.approx(-3.0, abs=0.1)
+
+
+def test_ready_chime_is_reverse_of_wake_chime():
+    wake, ready = wake_chime(16000), ready_chime(16000)
+    assert len(ready) == len(wake)
+    assert peak_dbfs(ready) == pytest.approx(-6.0, abs=0.1)
+    assert len(ready) / 16000 < 0.25
+
+
+def dominant_hz(samples, sample_rate=16000):
+    spectrum = np.abs(np.fft.rfft(samples.astype(float)))
+    return np.fft.rfftfreq(len(samples), 1 / sample_rate)[np.argmax(spectrum)]
+
+
+def test_ready_chime_goes_down_in_pitch():
+    ready = ready_chime(16000)
+    first, second = ready[: round(0.07 * 16000)], ready[-round(0.08 * 16000):]
+    assert dominant_hz(first) > dominant_hz(second)

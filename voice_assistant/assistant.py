@@ -1,6 +1,7 @@
 """音声アシスタントの本体。ウェイクワード → お知らせ音 → 聞き取り → AI → 読み上げ を繰り返す。
 
 読み上げの間はマイクを閉じる（自分の声やお知らせ音にウェイクワードが反応しないように）。
+ウェイクワードの待ち受けに戻るたびに、検知時と逆向きのお知らせ音（ready_chime）を鳴らす。
 """
 
 import logging
@@ -15,7 +16,7 @@ from .config import AudioConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
-from .sounds import wake_chime
+from .sounds import ready_chime, wake_chime
 from .stt import VoskRecognizer
 from .tts import OpenJTalk, to_speakable
 from .vad import EndpointConfig, Endpointer, SileroVad, collect_utterance
@@ -65,6 +66,7 @@ class Assistant:
         self._recognizer = VoskRecognizer()
         self._tts = OpenJTalk()
         self._chime = wake_chime(audio.SAMPLE_RATE)
+        self._ready_chime = ready_chime(audio.SAMPLE_RATE)
 
     def run(self) -> None:
         """止められるまで（Ctrl+C など）動き続ける。"""
@@ -74,6 +76,8 @@ class Assistant:
         self._speak(STARTUP_MESSAGE)
         while True:
             try:
+                # 待ち受けに戻ったことを知らせる（鳴らし終わってからマイクを開く）
+                audio.play(self._ready_chime, audio.SAMPLE_RATE, device=self._audio.output_device)
                 self.handle_one_turn()
             except Exception as e:
                 logger.exception("想定外のエラー")

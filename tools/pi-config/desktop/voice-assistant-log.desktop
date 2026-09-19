@@ -2,6 +2,6 @@
 Type=Application
 Name=会話ログ
 Comment=音声アシスタントのやり取りを表示する（~/voice-assistant/tools/show_conversation.sh）
-Exec=lxterminal --title=会話ログ -e bash -c "\$HOME/voice-assistant/tools/show_conversation.sh"
+Exec=bash -c "XDG_CONFIG_HOME=\$HOME/voice-assistant/tools/pi-config/conversation-terminal exec lxterminal --no-remote --title=会話ログ -e \$HOME/voice-assistant/tools/show_conversation.sh"
 Icon=utilities-terminal
 Terminal=false

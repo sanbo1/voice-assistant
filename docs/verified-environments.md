@@ -358,3 +358,77 @@ models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 models/silero_vad/silero_vad.onnx  1a153a22f4509e29
 models/vosk-model-small-ja-0.22.zip  efa092d280153a77
 ```
+
+## 2026-09-19：段階 3（統合・会話ログの表示・自動起動）
+
+- 結果：成功
+  - `python -m voice_assistant`：ウェイクワード → お知らせ音 → 聞き取り（話しながら認識）→ Gemini（会話履歴つき）→ 読み上げ
+    → 待ち受けの音 の流れを、利用者が話しかけて確認。続けての質問で前の話を踏まえた返答、無発話時の打ち切りも確認
+  - 話しながら認識する方式：話し終わりの判定から認識結果まで 0.02〜0.04 秒（まとめて認識する方式と同じ結果を 4 件で確認）
+  - 話し終わりの判定から読み上げ開始まで：1.56〜3.73 秒（認識 0.02〜0.04、AI 1.04〜2.14、合成 0.48〜1.56。
+    合成 1.56 秒は再起動直後の 1 回目）。予備のモデルに切り替えた 1 回は 7.54 秒（AI 6.86 秒）
+  - 会話ログ：デスクトップの「会話ログ」アイコンで表示（文字の大きさ 25、返答・エラーのあとに空行）
+  - 画面が消えると HDMI のスピーカーから音が出ないことを確認 → 画面の自動消灯をオフ。11 分後も読み上げが聞こえることを確認
+  - 自動起動（systemd のユーザーサービス＋linger）：モニターあり・モニターなしの両方で、電源を入れるだけで起動
+    （モニターなしでも SSH 接続の 2 分以上前に起動。起動後 17 秒でサービス開始、モデル読み込みを含め約 21 秒で「起動しました」）。
+    モニターなしでもデスクトップの自動ログインは行われていたため、linger だけで起動するかは未確認
+  - Gemini：gemini-3.6-flash の無料枠が 1 日 20 回（GenerateRequestsPerDayPerProjectPerModel-FreeTier）と判明。
+    予備のモデル（gemini-3.5-flash-lite → gemini-3.1-flash-lite）への自動切り替えを追加し、上限時に切り替わることを確認
+  - 技術的なログは `journalctl _SYSTEMD_USER_UNIT=voice-assistant.service` で見る（`journalctl --user` では見られない）
+  - PC（Windows 11、Python 3.11.9）で pytest 112 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+- 周辺機器・設定：USB マイク、HDMI モニター（ORION、1920×1080）のスピーカー。WirePlumber で HDMI の休止なし、
+  画面の自動消灯オフ、linger 有効、デスクトップへの自動ログイン有効
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+open-jtalk=1.11-3
+open-jtalk-mecab-naist-jdic=1.11-3
+hts-voice-nitech-jp-atr503-m001=1.05-7
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+srt==3.5.3
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+vosk==0.3.45
+websockets==17.1
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+models/vosk-model-small-ja-0.22.zip  efa092d280153a77
+```

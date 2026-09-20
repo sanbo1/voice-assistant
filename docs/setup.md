@@ -100,7 +100,8 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
      `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
   6. 自動起動のサービスと、HDMI の音声出力を見張るタイマー（`tools/pi-config/systemd/`）を `~/.config/systemd/user/` に置き、
      有効にする（10 を参照）
-  7. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
+  7. 会話ログのアイコンを `~/.config/autostart/` に置く（デスクトップにログインしたとき自動で開く）
+  8. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |
 |---|---|---|
@@ -283,9 +284,13 @@ ssh raspi-voice 'sudo loginctl enable-linger $(id -un)'
 ssh raspi-voice 'cp ~/voice-assistant/tools/pi-config/desktop/voice-assistant-log.desktop ~/Desktop/'
 ```
 
+Pi の起動時（デスクトップへの自動ログイン時）にも自動で開く。`tools/setup_pi.sh` が同じファイルを
+`~/.config/autostart/` に置くため。自動で開かないようにするには、そのファイルを消す：
+`rm ~/.config/autostart/voice-assistant-log.desktop`（`setup_pi.sh` を実行すると戻る）。
+
 - ダブルクリックするとターミナルが開き、直近 50 行を表示したあと、新しいやり取りを自動で追加表示する
   （中身は `tools/show_conversation.sh`）。閉じても音声アシスタント本体は止まらない。
-- 文字は通常のターミナルより大きい（Monospace 25、ウィンドウは 70 桁 × 20 行。通常は 10、80 × 24）。このウィンドウだけ
+- 文字は通常のターミナルより大きい（Monospace 25、ウィンドウは 90 桁 × 24 行、文字まわりの余白は 20px。通常は 10、80 × 24）。このウィンドウだけ
   `tools/pi-config/conversation-terminal/` の lxterminal の設定を読ませているため、ほかのターミナルには影響しない。
   大きさを変えるときは、その設定ファイルの `fontname` を直してアイコンをコピーし直す。
 - 実行してよいか確認する画面が出た場合は「実行」を選ぶ。

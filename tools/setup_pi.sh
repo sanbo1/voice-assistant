@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pi 上で実行環境を準備する：apt パッケージ、venv、Python パッケージ、モデル、WirePlumber の設定、
-# 自動起動（systemd のユーザーサービス）、.env のひな形。
+# 自動起動（systemd のユーザーサービス）、会話ログの表示の自動起動、.env のひな形。
 # 何度実行してもよい（導入済みのものはそのまま。.env があれば触らない）。
 #
 # 使い方（Pi 上で）：bash ~/voice-assistant/tools/setup_pi.sh
@@ -106,6 +106,17 @@ fi
 if ! systemctl --user is-enabled --quiet voice-assistant-hdmi-watch.timer; then
     systemctl --user enable --now voice-assistant-hdmi-watch.timer
     echo "HDMI の音声出力を見張るタイマーを有効にしました"
+fi
+
+echo "== 会話ログの自動起動（デスクトップ）"
+desktop_src="tools/pi-config/desktop/voice-assistant-log.desktop"
+autostart_dir="$HOME/.config/autostart"
+if cmp -s "$desktop_src" "$autostart_dir/$(basename "$desktop_src")"; then
+    echo "設定済み"
+else
+    mkdir -p "$autostart_dir"
+    cp "$desktop_src" "$autostart_dir/"
+    echo "配置しました：$autostart_dir/$(basename "$desktop_src")（次にデスクトップにログインしたときから開く）"
 fi
 
 echo "== .env"

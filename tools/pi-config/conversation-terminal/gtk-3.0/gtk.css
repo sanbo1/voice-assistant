@@ -1,0 +1,7 @@
+/* 会話ログを表示するターミナル（tools/show_conversation.sh）専用の見た目の設定。
+   デスクトップの「会話ログ」アイコンが XDG_CONFIG_HOME をこのフォルダの親に切り替えて読ませるため、
+   ほかのターミナルには影響しない。
+   文字のまわりの余白を、上下左右とも文字 1 個分（約 20px。Monospace 25 の文字幅）あける。 */
+vte-terminal {
+    padding: 20px;
+}

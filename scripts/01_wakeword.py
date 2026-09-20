@@ -58,8 +58,9 @@ def main() -> int:
             if detected:
                 detections += 1
                 now = datetime.now().strftime("%H:%M:%S")
+                scores = " ".join(f"{score:.2f}" for score in detector.last_scores)
                 print(f"[{now}] 検知しました（{detections} 回目、スコア {detector.last_score:.2f}、"
-                      f"連続 {detector.last_run_frames} フレーム）")
+                      f"直前 {scores}）")
 
             if args.show_scores:
                 peak = max(peak, detector.last_score)

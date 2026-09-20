@@ -1,4 +1,10 @@
-from voice_assistant.wakeword import TriggerGate
+from collections import deque
+
+from voice_assistant.wakeword import (
+    SCORE_HISTORY_FRAMES,
+    TriggerGate,
+    WakeWordDetector,
+)
 
 
 def test_below_threshold_never_triggers():
@@ -44,3 +50,46 @@ def test_patience_three_frames():
 def test_patience_count_restarts_after_cooldown():
     gate = TriggerGate(threshold=0.5, cooldown_frames=2, patience_frames=2)
     assert [gate.update(0.9) for _ in range(6)] == [False, True, False, False, False, True]
+
+
+class FakeGateModel:
+    """WakeWordDetector のうち、モデルを使わない部分だけを試すための土台。"""
+
+    def __init__(self, scores):
+        self.scores = list(scores)
+        self.resets = 0
+
+    def predict(self, frame):
+        return {"fake": self.scores.pop(0)}
+
+    def reset(self):
+        self.resets += 1
+
+
+def make_detector(scores, patience=2):
+    """モデルを差し替えた WakeWordDetector を作る（ファイルの読み込みを避けるため __new__ で組み立てる）。"""
+    detector = WakeWordDetector.__new__(WakeWordDetector)
+    detector._model = FakeGateModel(scores)
+    detector.name = "fake"
+    detector._gate = TriggerGate(0.35, cooldown_frames=0, patience_frames=patience)
+    detector.last_score = 0.0
+    detector.last_scores = []
+    detector._recent = deque(maxlen=SCORE_HISTORY_FRAMES)
+    return detector
+
+
+def test_detector_records_recent_scores_on_detection():
+    detector = make_detector([0.01, 0.10, 0.40, 0.44])
+    results = [detector.process(None) for _ in range(4)]
+    assert results == [False, False, False, True]
+    # 検知したときに、直前のスコアの並びを残す
+    assert detector.last_scores == [0.01, 0.10, 0.40, 0.44]
+    assert detector._model.resets == 1
+
+
+def test_detector_keeps_only_recent_scores():
+    detector = make_detector([0.0] * 10 + [0.9, 0.9])
+    for _ in range(12):
+        detector.process(None)
+    assert len(detector.last_scores) == SCORE_HISTORY_FRAMES
+    assert detector.last_scores[-2:] == [0.9, 0.9]

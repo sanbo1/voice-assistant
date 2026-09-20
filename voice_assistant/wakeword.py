@@ -3,6 +3,7 @@
 モデルは models/openwakeword/ に置く（tools/setup_pi.sh がダウンロードする）。
 """
 
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,8 @@ DEFAULT_THRESHOLD = 0.35
 # 本物の発話ではスコアが数フレーム続けて高くなり、物音などの誤検知は 1 フレームだけ跳ね上がることが多い、という想定。
 # 実際の続き方は、検知のたびに記録している（会話ログと技術ログの「連続 N フレーム」）。
 DEFAULT_PATIENCE_FRAMES = 2
+# 検知したときに記録しておく、直前のスコアの数（本物の反応と誤反応の違いを見分ける材料にする）
+SCORE_HISTORY_FRAMES = 8
 
 
 class TriggerGate:
@@ -79,19 +82,23 @@ class WakeWordDetector:
         self.name = next(iter(self._model.models))
         self._gate = TriggerGate(threshold, round(cooldown_seconds * SAMPLE_RATE / FRAME_SAMPLES), patience_frames)
         self.last_score = 0.0
-        self.last_run_frames = 0  # 検知したときに、しきい値を超えて続いていたフレーム数
+        self.last_scores: list[float] = []  # 検知したときの、直前のスコアの並び
+        self._recent: deque[float] = deque(maxlen=SCORE_HISTORY_FRAMES)
 
     def reset(self) -> None:
         """それまでの音声による状態を消す（マイクを開き直したときに呼ぶ）。"""
         self._model.reset()
         self._gate = TriggerGate(self._gate.threshold, self._gate.cooldown_frames, self._gate.patience_frames)
         self.last_score = 0.0
+        self._recent.clear()
 
     def process(self, frame: np.ndarray) -> bool:
         """80ms 分（int16、16kHz、モノラル）の音声を渡し、ウェイクワードを検知したら True を返す。"""
         self.last_score = float(self._model.predict(frame)[self.name])
+        self._recent.append(self.last_score)
         detected = self._gate.update(self.last_score)
         if detected:
-            self.last_run_frames = self._gate.run_frames
+            self.last_scores = list(self._recent)
             self._model.reset()
+            self._recent.clear()
         return detected

@@ -27,7 +27,6 @@ from .wakeword import FRAME_SAMPLES, WakeWordDetector
 logger = logging.getLogger(__name__)
 
 STARTUP_MESSAGE = "音声アシスタントを起動しました。"
-NOT_HEARD_MESSAGE = "すみません、聞き取れませんでした。もう一度話しかけてください。"
 RATE_LIMIT_MESSAGE = "利用回数の上限に達しました。少し時間をおいてから話しかけてください。"
 DAILY_LIMIT_MESSAGE = "今日の利用回数の上限に達しました。しばらくしてから、もう一度お試しください。"
 AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでした。少し待ってから、もう一度お試しください。"
@@ -136,8 +135,8 @@ class Assistant:
         recognized = time.perf_counter()
         self._log.heard(text)
         if len(text) < MIN_QUESTION_CHARS:
-            # 周りの音を拾っただけのことが多いため、AI には送らない
-            self._speak(NOT_HEARD_MESSAGE)
+            # 周りの音を拾っただけのことが多いため、AI には送らず、何も言わずに待ち受けへ戻る
+            # （ウェイクワードの誤反応のたびに話すとうるさいため。2026-09-20）
             return False
 
         answer = reply_or_error_message(self._ai, self._history, text, self._log)
@@ -154,11 +153,12 @@ class Assistant:
                 if self._detector.process(frame):
                     break
             audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
-            logger.info("ウェイクワードを検知（スコア %.2f、連続 %d フレーム）",
-                        self._detector.last_score, self._detector.last_run_frames)
+            # 直前のスコアの並びも残す（本物の反応と誤反応の違いを見分ける材料にする）
+            scores = " ".join(f"{score:.2f}" for score in self._detector.last_scores)
+            logger.info("ウェイクワードを検知（スコア %.2f、直前 %s）", self._detector.last_score, scores)
             # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
             self._log.status("聞き取り中…話してください（ウェイクワードを検知、"
-                             f"スコア {self._detector.last_score:.2f}、連続 {self._detector.last_run_frames} フレーム）")
+                             f"スコア {self._detector.last_score:.2f}、直前 {scores}）")
             return self._collect(stream, self._endpoint_config)
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる

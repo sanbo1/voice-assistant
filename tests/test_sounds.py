@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from voice_assistant.levels import peak_dbfs
-from voice_assistant.sounds import ready_chime, tone, wake_chime
+from voice_assistant.sounds import listen_chime, ready_chime, tone, wake_chime
 
 
 def test_tone_length_and_level():
@@ -30,11 +30,12 @@ def test_wake_chime_level():
     assert peak_dbfs(wake_chime(16000, level_dbfs=-3.0)) == pytest.approx(-3.0, abs=0.1)
 
 
-def test_ready_chime_is_reverse_of_wake_chime():
+def test_ready_chime_is_longer_than_wake_chime():
+    # 検知の音（上がる 2 音）と、待ち受けに戻る音（下がる 3 音）を、音の数と長さで区別できるようにしている
     wake, ready = wake_chime(16000), ready_chime(16000)
-    assert len(ready) == len(wake)
+    assert len(wake) / 16000 == pytest.approx(0.18, abs=0.01)
+    assert len(ready) / 16000 == pytest.approx(0.28, abs=0.01)
     assert peak_dbfs(ready) == pytest.approx(-6.0, abs=0.1)
-    assert len(ready) / 16000 < 0.25
 
 
 def dominant_hz(samples, sample_rate=16000):
@@ -43,13 +44,20 @@ def dominant_hz(samples, sample_rate=16000):
 
 
 def test_ready_chime_goes_down_in_pitch():
-    ready = ready_chime(16000)
-    first, second = ready[: round(0.07 * 16000)], ready[-round(0.08 * 16000):]
-    assert dominant_hz(first) > dominant_hz(second)
+    ready, n = ready_chime(16000), round(0.08 * 16000)
+    first, middle, last = ready[:n], ready[n + 320: 2 * n + 320], ready[-n:]
+    assert dominant_hz(first) > dominant_hz(middle) > dominant_hz(last)
 
 
 def test_chimes_at_output_sample_rate():
     # 再生に使う 48kHz でも、同じ長さ・同じ音量で作れる
-    for chime in (wake_chime(48000), ready_chime(48000)):
-        assert len(chime) == 3 * len(wake_chime(16000))
-        assert peak_dbfs(chime) == pytest.approx(-6.0, abs=0.1)
+    for maker in (wake_chime, ready_chime, listen_chime):
+        assert len(maker(48000)) == 3 * len(maker(16000))
+        assert peak_dbfs(maker(48000)) == pytest.approx(-6.0, abs=0.1)
+
+
+def test_listen_chime_is_one_short_tone():
+    chime = listen_chime(48000)
+    assert len(chime) == round(0.08 * 48000)
+    assert peak_dbfs(chime) == pytest.approx(-6.0, abs=0.1)
+    assert dominant_hz(chime, 48000) == pytest.approx(1100, abs=30)

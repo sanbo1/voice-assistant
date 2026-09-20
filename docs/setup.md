@@ -156,6 +156,8 @@ nano ~/voice-assistant/.env
 - `GEMINI_FALLBACK_MODELS`：予備のモデル（カンマ区切り）。空なら既定（gemini-3.5-flash-lite、gemini-3.1-flash-lite）。
   無料枠の 1 日の上限はモデルごと（gemini-3.6-flash は 20 回/日だった）。上限に達したモデルは 1 時間ごとに確認し、
   回復したら優先のモデルに戻る。切り替えは会話ログの「状態」に、予備のモデルでの返答は「返答（モデル名）」と書かれる。
+- `FOLLOWUP_SECONDS` / `FOLLOWUP_MAX_TURNS`：返答のあと、ウェイクワードなしで続けて話せる秒数と回数
+  （空なら 3 秒・3 回）。`FOLLOWUP_SECONDS=0` にすると、続けて話す機能を使わない。
 - `AUDIO_INPUT_DEVICE` / `AUDIO_OUTPUT_DEVICE`：空なら既定のデバイス。機体ごとに変える場合に記入する。
 
 ## 7. モデルのダウンロード

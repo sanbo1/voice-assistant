@@ -1,25 +1,27 @@
 """音声アシスタントの本体。ウェイクワード → お知らせ音 → 聞き取り → AI → 読み上げ を繰り返す。
 
 読み上げの間はマイクを閉じる（自分の声やお知らせ音にウェイクワードが反応しないように）。
+返答のあとは、決めた秒数だけ「続けて話せる状態」になり、話しかけられなければウェイクワード待ちに戻る。
 ウェイクワードの待ち受けに戻るたびに、検知時と逆向きのお知らせ音（ready_chime）を鳴らす。
 """
 
+import dataclasses
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
-from .config import AudioConfig
+from .config import AssistantConfig, AudioConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
-from .sounds import ready_chime, wake_chime
-from .stt import VoskRecognizer
+from .sounds import listen_chime, ready_chime, wake_chime
+from .stt import RecognitionStream, VoskRecognizer
 from .tts import OpenJTalk, to_speakable
-from .vad import EndpointConfig, Endpointer, SileroVad, collect_utterance
+from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
 from .wakeword import FRAME_SAMPLES, WakeWordDetector
 
 logger = logging.getLogger(__name__)
@@ -33,12 +35,17 @@ AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでし
 ERROR_BACKOFF_SECONDS = 5.0
 # 起動直後に出力を目覚めさせてから待つ秒数（HDMI は休止から戻る間の音が失われるため）
 OUTPUT_WAKE_SECONDS = 2.0
-# 再生にかかった時間が音声の長さのこの倍を超えたら、遅くなったとみなして記録する
-# （読み上げが途中から遅く・低くなる現象を調べるため。2026-09-20）
-SLOW_PLAYBACK_FACTOR = 1.15
+# 再生にかかった時間が音声の長さのこの倍を超えたら、遅くなったとみなして会話ログに記録する。
+# 読み上げが途中から遅く・低くなる現象を調べるため。1.15 では 1.1 倍ほどの遅れを拾えなかったので 1.08 にした（2026-09-20）
+SLOW_PLAYBACK_FACTOR = 1.08
 # 話し終わりの判定から読み上げ開始までがこの秒数を超えたら、会話ログにも記録する
 # （技術ログは Pi の再起動で消えるため。2026-09-20）
 SLOW_RESPONSE_SECONDS = 5.0
+# 読み上げのあと、続けて話せる状態にする前に待つ秒数
+# （スピーカーから出た読み上げの終わりをマイクが拾い、話し始めと判定されないように）
+FOLLOWUP_DELAY_SECONDS = 0.5
+# 聞き取った文字がこれより短いときは AI に送らない（周りの音による短い誤認識を送らないため）
+MIN_QUESTION_CHARS = 2
 
 
 def is_slow_playback(expected_seconds: float, elapsed_seconds: float) -> bool:
@@ -71,12 +78,14 @@ class Assistant:
         *,
         audio_config: AudioConfig,
         log: ConversationLog,
+        assistant_config: AssistantConfig = AssistantConfig(),
         history: ConversationHistory | None = None,
         endpoint_config: EndpointConfig = EndpointConfig(),
     ):
         self._ai = ai
         self._audio = audio_config
         self._log = log
+        self._config = assistant_config
         self._history = history or ConversationHistory()
         self._endpoint_config = endpoint_config
         self._detector = WakeWordDetector()
@@ -86,6 +95,7 @@ class Assistant:
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
         self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)
         self._ready_chime = ready_chime(audio.OUTPUT_SAMPLE_RATE)
+        self._listen_chime = listen_chime(audio.OUTPUT_SAMPLE_RATE)
 
     def run(self) -> None:
         """止められるまで（Ctrl+C など）動き続ける。"""
@@ -105,7 +115,38 @@ class Assistant:
                 time.sleep(ERROR_BACKOFF_SECONDS)
 
     def handle_one_turn(self) -> None:
-        """ウェイクワードを待ち、1 回分の質問に答える。"""
+        """ウェイクワードを待って質問に答え、そのあとは決めた回数まで続けて話せるようにする。"""
+        if not self._answer_once(self._wake_and_listen):
+            return
+        for remaining in range(self._config.followup_max_turns - 1, -1, -1):
+            if self._config.followup_seconds <= 0:
+                return
+            if not self._answer_once(lambda: self._listen_again(remaining)):
+                return
+
+    def _answer_once(self, listen: Callable[[], tuple[Utterance, RecognitionStream]]) -> bool:
+        """聞き取って答える。続けて話せる状態にしてよければ True を返す。"""
+        utterance, recognition = listen()
+        if utterance.samples is None:
+            self._log.status(f"聞き取りを終了しました（{utterance.reason.value}）")
+            return False
+
+        started = time.perf_counter()
+        text = recognition.finish()
+        recognized = time.perf_counter()
+        self._log.heard(text)
+        if len(text) < MIN_QUESTION_CHARS:
+            # 周りの音を拾っただけのことが多いため、AI には送らない
+            self._speak(NOT_HEARD_MESSAGE)
+            return False
+
+        answer = reply_or_error_message(self._ai, self._history, text, self._log)
+        answered = time.perf_counter()
+        self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
+        return True
+
+    def _wake_and_listen(self) -> tuple[Utterance, RecognitionStream]:
+        """ウェイクワードを待ち、お知らせ音を鳴らしてから聞き取る（マイクは開いたまま続ける）。"""
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:
             self._detector.reset()
@@ -118,33 +159,35 @@ class Assistant:
             # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
             self._log.status("聞き取り中…話してください（ウェイクワードを検知、"
                              f"スコア {self._detector.last_score:.2f}、連続 {self._detector.last_run_frames} フレーム）")
-
-            self._vad.reset()
-            recognition = self._recognizer.start()
-            utterance = collect_utterance(
-                rechunk(stream, SileroVad.FRAME_SAMPLES),
-                self._vad.speech_probability,
-                Endpointer(self._endpoint_config, SileroVad.FRAME_SAMPLES / audio.SAMPLE_RATE),
-                recognition,
-            )
+            return self._collect(stream, self._endpoint_config)
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる
 
-        if utterance.samples is None:
-            self._log.status(f"聞き取りを終了しました（{utterance.reason.value}）")
-            return
+    def _listen_again(self, remaining: int) -> tuple[Utterance, RecognitionStream]:
+        """返答のあと、ウェイクワードなしで続けて話せる状態にする。"""
+        # スピーカーから出た読み上げの終わりを拾わないよう、少し待ってからマイクを開く
+        time.sleep(FOLLOWUP_DELAY_SECONDS)
+        audio.play(self._listen_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
+        seconds = self._config.followup_seconds
+        self._log.status(f"続けて話せます（{seconds:g} 秒以内。このあと {remaining} 回まで）")
+        config = dataclasses.replace(self._endpoint_config, start_timeout_seconds=seconds)
+        stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
+        try:
+            return self._collect(stream, config)
+        finally:
+            stream.close()
 
-        started = time.perf_counter()
-        text = recognition.finish()
-        recognized = time.perf_counter()
-        self._log.heard(text)
-        if not text:
-            self._speak(NOT_HEARD_MESSAGE)
-            return
-
-        answer = reply_or_error_message(self._ai, self._history, text, self._log)
-        answered = time.perf_counter()
-        self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
+    def _collect(self, stream: Iterator[np.ndarray], config: EndpointConfig) -> tuple[Utterance, RecognitionStream]:
+        """発話を切り出しながら、同時に音声認識へ渡す。"""
+        self._vad.reset()
+        recognition = self._recognizer.start()
+        utterance = collect_utterance(
+            rechunk(stream, SileroVad.FRAME_SAMPLES),
+            self._vad.speech_probability,
+            Endpointer(config, SileroVad.FRAME_SAMPLES / audio.SAMPLE_RATE),
+            recognition,
+        )
+        return utterance, recognition
 
     def _log_response_time(self, started: float, recognized: float, answered: float) -> None:
         """話し終わりの判定から読み上げ開始までの時間を記録する。遅いときは会話ログにも残す。"""
@@ -173,8 +216,9 @@ class Assistant:
         start = time.perf_counter()
         audio.play(samples, sample_rate, device=self._audio.output_device)
         elapsed = time.perf_counter() - start
+        # 遅くなかった回も記録しておき、あとから比べられるようにする（2026-09-20）
+        logger.info("読み上げ：%.1f 秒の音声に %.1f 秒（%.2f 倍）", expected, elapsed, elapsed / max(expected, 1e-9))
         if is_slow_playback(expected, elapsed):
-            # 読み上げが途中から遅く・低くなる現象を調べるための記録（2026-09-20）
             logger.warning("読み上げが遅くなりました：%.1f 秒の音声に %.1f 秒（%.2f 倍）",
                            expected, elapsed, elapsed / expected)
-            self._log.status(f"読み上げが遅くなりました（{expected:.1f} 秒の音声に {elapsed:.1f} 秒）")
+            self._log.status(f"読み上げが遅くなりました（{expected:.1f} 秒の音声に {elapsed:.1f} 秒、{elapsed / expected:.2f} 倍）")

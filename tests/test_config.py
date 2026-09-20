@@ -1,4 +1,12 @@
-from voice_assistant.config import AudioConfig, GeminiConfig, load_audio_config, load_gemini_config, parse_device
+from voice_assistant.config import (
+    AssistantConfig,
+    AudioConfig,
+    GeminiConfig,
+    load_assistant_config,
+    load_audio_config,
+    load_gemini_config,
+    parse_device,
+)
 
 
 def test_parse_device_empty_means_default():
@@ -45,3 +53,18 @@ def test_load_gemini_fallback_models():
     assert load_gemini_config({}).fallback_models is None
     assert load_gemini_config({"GEMINI_FALLBACK_MODELS": " a , b ,"}).fallback_models == ("a", "b")
     assert load_gemini_config({"GEMINI_FALLBACK_MODELS": "none"}).fallback_models == ()
+
+
+def test_load_assistant_config_defaults():
+    assert load_assistant_config({}) == AssistantConfig(followup_seconds=3.0, followup_max_turns=3)
+
+
+def test_load_assistant_config_from_env():
+    config = load_assistant_config({"FOLLOWUP_SECONDS": "5", "FOLLOWUP_MAX_TURNS": "1"})
+    assert config == AssistantConfig(followup_seconds=5.0, followup_max_turns=1)
+
+
+def test_load_assistant_config_ignores_invalid_values():
+    config = load_assistant_config({"FOLLOWUP_SECONDS": "x", "FOLLOWUP_MAX_TURNS": " "})
+    assert config == AssistantConfig()
+    assert load_assistant_config({"FOLLOWUP_SECONDS": "0"}).followup_seconds == 0.0

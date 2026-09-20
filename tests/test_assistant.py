@@ -88,6 +88,6 @@ def test_reply_is_labeled_only_when_fallback_model_answered():
 
 
 def test_is_slow_playback():
-    assert is_slow_playback(10.0, 12.0) is True     # 1.2 倍
-    assert is_slow_playback(10.0, 11.0) is False    # 1.1 倍
+    assert is_slow_playback(10.0, 11.0) is True     # 1.1 倍（2026-09-20 に実際に起きた遅さ）
+    assert is_slow_playback(10.0, 10.5) is False    # 1.05 倍（再生開始の待ち時間の分）
     assert is_slow_playback(0.0, 5.0) is False      # 長さが 0 の音声は判定しない

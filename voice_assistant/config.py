@@ -49,6 +49,32 @@ def load_audio_config(env: Mapping[str, str] = os.environ) -> AudioConfig:
 
 
 @dataclass(frozen=True)
+class AssistantConfig:
+    # 返答のあと、ウェイクワードなしで続けて話せる秒数（0 なら続けて話す機能を使わない）
+    followup_seconds: float = 3.0
+    # 続けて話せる回数の上限（1 回のウェイクワードにつき）
+    followup_max_turns: int = 3
+
+
+def parse_number(value: str | None, default: float | int) -> float | int:
+    """数値の設定を読む。空や数値でない場合は既定値。"""
+    value = (value or "").strip()
+    if not value:
+        return default
+    try:
+        return type(default)(value)
+    except ValueError:
+        return default
+
+
+def load_assistant_config(env: Mapping[str, str] = os.environ) -> AssistantConfig:
+    return AssistantConfig(
+        followup_seconds=parse_number(env.get("FOLLOWUP_SECONDS"), AssistantConfig.followup_seconds),
+        followup_max_turns=parse_number(env.get("FOLLOWUP_MAX_TURNS"), AssistantConfig.followup_max_turns),
+    )
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     api_key: str = field(default="", repr=False)  # 表示やログに API キーが出ないようにする
     model: str | None = None  # None なら既定のモデル

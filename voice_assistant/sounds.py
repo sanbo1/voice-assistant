@@ -1,5 +1,7 @@
 """お知らせ音の生成（正弦波から作る。外部の音声素材は使わない）。"""
 
+from collections.abc import Sequence
+
 import numpy as np
 
 
@@ -18,19 +20,33 @@ def tone(frequency: float, seconds: float, sample_rate: int, *, level_dbfs: floa
     return (wave * amplitude).astype(np.int16)
 
 
-def _two_tones(first_hz: float, second_hz: float, sample_rate: int, level_dbfs: float) -> np.ndarray:
-    return np.concatenate([
-        tone(first_hz, 0.07, sample_rate, level_dbfs=level_dbfs),
-        np.zeros(round(0.02 * sample_rate), dtype=np.int16),
-        tone(second_hz, 0.08, sample_rate, level_dbfs=level_dbfs),
-    ])
+GAP_SECONDS = 0.02
+
+
+def _tones(frequencies: Sequence[float], seconds: float, sample_rate: int, level_dbfs: float) -> np.ndarray:
+    """音を少しずつ間を空けて並べる。"""
+    gap = np.zeros(round(GAP_SECONDS * sample_rate), dtype=np.int16)
+    parts: list[np.ndarray] = []
+    for i, hz in enumerate(frequencies):
+        if i:
+            parts.append(gap)
+        parts.append(tone(hz, seconds, sample_rate, level_dbfs=level_dbfs))
+    return np.concatenate(parts)
 
 
 def wake_chime(sample_rate: int, *, level_dbfs: float = -6.0) -> np.ndarray:
-    """ウェイクワードを検知したときの音。低い音から高い音へ上がる 2 音（約 0.17 秒）。"""
-    return _two_tones(880.0, 1320.0, sample_rate, level_dbfs)
+    """ウェイクワードを検知したときの音。低い音から高い音へ上がる 2 音（約 0.18 秒）。"""
+    return _tones((880.0, 1320.0), 0.08, sample_rate, level_dbfs)
+
+
+def listen_chime(sample_rate: int, *, level_dbfs: float = -6.0) -> np.ndarray:
+    """返答のあと、続けて話せる状態になったことを知らせる音（短い 1 音）。"""
+    return tone(1100.0, 0.08, sample_rate, level_dbfs=level_dbfs)
 
 
 def ready_chime(sample_rate: int, *, level_dbfs: float = -6.0) -> np.ndarray:
-    """ウェイクワードの待ち受けに戻ったときの音。wake_chime と逆に、高い音から低い音へ下がる 2 音。"""
-    return _two_tones(1320.0, 880.0, sample_rate, level_dbfs)
+    """ウェイクワードの待ち受けに戻ったときの音。
+
+    高い音から低い音へ下がる 3 音（約 0.28 秒）。検知したときの音（上がる 2 音）と、音の数・長さで区別できるようにする。
+    """
+    return _tones((1320.0, 1100.0, 880.0), 0.08, sample_rate, level_dbfs)

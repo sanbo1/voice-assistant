@@ -33,6 +33,14 @@ AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでし
 ERROR_BACKOFF_SECONDS = 5.0
 # 起動直後に出力を目覚めさせてから待つ秒数（HDMI は休止から戻る間の音が失われるため）
 OUTPUT_WAKE_SECONDS = 2.0
+# 再生にかかった時間が音声の長さのこの倍を超えたら、遅くなったとみなして記録する
+# （読み上げが途中から遅く・低くなる現象を調べるため。2026-09-20）
+SLOW_PLAYBACK_FACTOR = 1.15
+
+
+def is_slow_playback(expected_seconds: float, elapsed_seconds: float) -> bool:
+    """再生にかかった時間が、音声の長さに対して長すぎるか。"""
+    return expected_seconds > 0 and elapsed_seconds > expected_seconds * SLOW_PLAYBACK_FACTOR
 
 
 def reply_or_error_message(ai: ChatClient, history: ConversationHistory, text: str, log: ConversationLog) -> str:
@@ -72,19 +80,21 @@ class Assistant:
         self._vad = SileroVad()
         self._recognizer = VoskRecognizer()
         self._tts = OpenJTalk()
-        self._chime = wake_chime(audio.SAMPLE_RATE)
-        self._ready_chime = ready_chime(audio.SAMPLE_RATE)
+        # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
+        self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)
+        self._ready_chime = ready_chime(audio.OUTPUT_SAMPLE_RATE)
 
     def run(self) -> None:
         """止められるまで（Ctrl+C など）動き続ける。"""
         self._log.status("起動しました")
-        audio.play(np.zeros(audio.SAMPLE_RATE // 2, dtype=np.int16), audio.SAMPLE_RATE, device=self._audio.output_device)
+        audio.play(np.zeros(audio.OUTPUT_SAMPLE_RATE // 2, dtype=np.int16), audio.OUTPUT_SAMPLE_RATE,
+                   device=self._audio.output_device)
         time.sleep(OUTPUT_WAKE_SECONDS)
         self._speak(STARTUP_MESSAGE)
         while True:
             try:
                 # 待ち受けに戻ったことを知らせる（鳴らし終わってからマイクを開く）
-                audio.play(self._ready_chime, audio.SAMPLE_RATE, device=self._audio.output_device)
+                audio.play(self._ready_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
                 self.handle_one_turn()
             except Exception as e:
                 logger.exception("想定外のエラー")
@@ -99,7 +109,7 @@ class Assistant:
             for frame in stream:
                 if self._detector.process(frame):
                     break
-            audio.play_nowait(self._chime, audio.SAMPLE_RATE, device=self._audio.output_device)
+            audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
             logger.info("ウェイクワードを検知（スコア %.2f）", self._detector.last_score)
             # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
             self._log.status(f"聞き取り中…話してください（ウェイクワードを検知、スコア {self._detector.last_score:.2f}）")
@@ -147,4 +157,12 @@ class Assistant:
             return
         if before_play is not None:
             before_play()
+        expected = len(samples) / sample_rate
+        start = time.perf_counter()
         audio.play(samples, sample_rate, device=self._audio.output_device)
+        elapsed = time.perf_counter() - start
+        if is_slow_playback(expected, elapsed):
+            # 読み上げが途中から遅く・低くなる現象を調べるための記録（2026-09-20）
+            logger.warning("読み上げが遅くなりました：%.1f 秒の音声に %.1f 秒（%.2f 倍）",
+                           expected, elapsed, elapsed / expected)
+            self._log.status(f"読み上げが遅くなりました（{expected:.1f} 秒の音声に {elapsed:.1f} 秒）")

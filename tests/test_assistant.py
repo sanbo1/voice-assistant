@@ -1,5 +1,11 @@
 from voice_assistant.ai import AiError
-from voice_assistant.assistant import AI_ERROR_MESSAGE, DAILY_LIMIT_MESSAGE, RATE_LIMIT_MESSAGE, reply_or_error_message
+from voice_assistant.assistant import (
+    AI_ERROR_MESSAGE,
+    DAILY_LIMIT_MESSAGE,
+    RATE_LIMIT_MESSAGE,
+    is_slow_playback,
+    reply_or_error_message,
+)
 from voice_assistant.history import ConversationHistory
 
 
@@ -79,3 +85,9 @@ def test_reply_is_labeled_only_when_fallback_model_answered():
     reply_or_error_message(FakeFallbackAi("A", "main-model"), ConversationHistory(), "q", log)
     reply_or_error_message(FakeFallbackAi("B", "lite-model"), ConversationHistory(), "q", log)
     assert log.lines == [("reply", "A", None), ("reply", "B", "lite-model")]
+
+
+def test_is_slow_playback():
+    assert is_slow_playback(10.0, 12.0) is True     # 1.2 倍
+    assert is_slow_playback(10.0, 11.0) is False    # 1.1 倍
+    assert is_slow_playback(0.0, 5.0) is False      # 長さが 0 の音声は判定しない

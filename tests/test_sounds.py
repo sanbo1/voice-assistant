@@ -46,3 +46,10 @@ def test_ready_chime_goes_down_in_pitch():
     ready = ready_chime(16000)
     first, second = ready[: round(0.07 * 16000)], ready[-round(0.08 * 16000):]
     assert dominant_hz(first) > dominant_hz(second)
+
+
+def test_chimes_at_output_sample_rate():
+    # 再生に使う 48kHz でも、同じ長さ・同じ音量で作れる
+    for chime in (wake_chime(48000), ready_chime(48000)):
+        assert len(chime) == 3 * len(wake_chime(16000))
+        assert peak_dbfs(chime) == pytest.approx(-6.0, abs=0.1)

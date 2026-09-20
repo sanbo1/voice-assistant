@@ -12,7 +12,12 @@ import sounddevice as sd
 from .config import Device
 
 SAMPLE_RATE = 16000
+# 再生に使う周波数。PipeWire と HDMI が 48kHz で動いているため、そろえて変換をなくす
+OUTPUT_SAMPLE_RATE = 48000
 DTYPE = "int16"
+# 再生時の待ち行列の長さ。"high" にすると余裕ができ、音が途切れたり遅くなったりしにくい
+# （そのぶん鳴り始めが 0.2 秒ほど遅くなる）
+PLAYBACK_LATENCY = "high"
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +37,13 @@ def record(seconds: float, *, device: Device = None, sample_rate: int = SAMPLE_R
 
 def play(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> None:
     """音声を再生し、終わるまで待つ。"""
-    sd.play(samples, samplerate=sample_rate, device=device)
+    sd.play(samples, samplerate=sample_rate, device=device, latency=PLAYBACK_LATENCY)
     sd.wait()
 
 
 def play_nowait(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> None:
     """音声の再生を始め、終わるのを待たずに戻る（録音を続けながら鳴らす用）。"""
-    sd.play(samples, samplerate=sample_rate, device=device)
+    sd.play(samples, samplerate=sample_rate, device=device, latency=PLAYBACK_LATENCY)
 
 
 def stream_frames(

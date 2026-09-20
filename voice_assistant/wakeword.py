@@ -13,27 +13,43 @@ SAMPLE_RATE = 16000
 FRAME_SAMPLES = 1280  # 80ms。openWakeWord の処理単位
 MODELS_DIR = PROJECT_ROOT / "models" / "openwakeword"
 DEFAULT_MODEL = MODELS_DIR / "hey_jarvis_v0.1.onnx"
-# 2026-09-19 の確認で決めた値。0.5 では取りこぼしが多く、0.35 で約 11 分間誤検知がなかった
+# 2026-09-19 の確認では、取りこぼしを減らすため 0.35 にした（約 11 分間の確認では誤検知なし）。
+# その後の運用（2026-09-20）で誤検知が多かったため、しきい値は 0.35 のままにして、
+# 「続けて超えたフレーム数」（DEFAULT_PATIENCE_FRAMES）で誤検知を減らす方式にした。
 DEFAULT_THRESHOLD = 0.35
+# 何フレーム続けてしきい値を超えたら反応するか。1 フレームは 80ms。
+# 本物の発話ではスコアが数フレーム続けて高くなり、物音などの誤検知は 1 フレームだけ跳ね上がることが多い、という想定。
+# 実際の続き方は、検知のたびに記録している（会話ログと技術ログの「連続 N フレーム」）。
+DEFAULT_PATIENCE_FRAMES = 2
 
 
 class TriggerGate:
-    """スコアがしきい値以上になったら 1 回だけ反応し、その後しばらくは反応しない。"""
+    """スコアがしきい値以上のフレームが patience_frames 回続いたら 1 回だけ反応し、その後しばらくは反応しない。"""
 
-    def __init__(self, threshold: float, cooldown_frames: int):
+    def __init__(self, threshold: float, cooldown_frames: int, patience_frames: int = 1):
         self.threshold = threshold
         self.cooldown_frames = cooldown_frames
+        self.patience_frames = max(1, patience_frames)
+        self.run_frames = 0  # 反応したときに、しきい値を超えて続いていたフレーム数
+        self._above = 0
         self._remaining = 0
 
     def update(self, score: float) -> bool:
         """1 フレーム分のスコアを渡し、反応すべきなら True を返す。"""
         if self._remaining > 0:
             self._remaining -= 1
+            self._above = 0
             return False
-        if score >= self.threshold:
-            self._remaining = self.cooldown_frames
-            return True
-        return False
+        if score < self.threshold:
+            self._above = 0
+            return False
+        self._above += 1
+        if self._above < self.patience_frames:
+            return False
+        self.run_frames = self._above
+        self._above = 0
+        self._remaining = self.cooldown_frames
+        return True
 
 
 class WakeWordDetector:
@@ -42,6 +58,7 @@ class WakeWordDetector:
         model_path: Path = DEFAULT_MODEL,
         *,
         threshold: float = DEFAULT_THRESHOLD,
+        patience_frames: int = DEFAULT_PATIENCE_FRAMES,
         cooldown_seconds: float = 2.0,
         models_dir: Path = MODELS_DIR,
     ):
@@ -60,13 +77,14 @@ class WakeWordDetector:
             embedding_model_path=str(embedding_path),
         )
         self.name = next(iter(self._model.models))
-        self._gate = TriggerGate(threshold, round(cooldown_seconds * SAMPLE_RATE / FRAME_SAMPLES))
+        self._gate = TriggerGate(threshold, round(cooldown_seconds * SAMPLE_RATE / FRAME_SAMPLES), patience_frames)
         self.last_score = 0.0
+        self.last_run_frames = 0  # 検知したときに、しきい値を超えて続いていたフレーム数
 
     def reset(self) -> None:
         """それまでの音声による状態を消す（マイクを開き直したときに呼ぶ）。"""
         self._model.reset()
-        self._gate = TriggerGate(self._gate.threshold, self._gate.cooldown_frames)
+        self._gate = TriggerGate(self._gate.threshold, self._gate.cooldown_frames, self._gate.patience_frames)
         self.last_score = 0.0
 
     def process(self, frame: np.ndarray) -> bool:
@@ -74,5 +92,6 @@ class WakeWordDetector:
         self.last_score = float(self._model.predict(frame)[self.name])
         detected = self._gate.update(self.last_score)
         if detected:
+            self.last_run_frames = self._gate.run_frames
             self._model.reset()
         return detected

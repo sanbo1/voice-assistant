@@ -16,7 +16,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from voice_assistant import audio  # noqa: E402
 from voice_assistant.config import load_audio_config, load_env_file  # noqa: E402
-from voice_assistant.wakeword import DEFAULT_MODEL, DEFAULT_THRESHOLD, FRAME_SAMPLES, WakeWordDetector  # noqa: E402
+from voice_assistant.wakeword import (  # noqa: E402
+    DEFAULT_MODEL,
+    DEFAULT_PATIENCE_FRAMES,
+    DEFAULT_THRESHOLD,
+    FRAME_SAMPLES,
+    WakeWordDetector,
+)
 
 FRAMES_PER_SECOND = audio.SAMPLE_RATE // FRAME_SAMPLES  # 12（1 フレーム 80ms）
 
@@ -26,13 +32,16 @@ def main() -> int:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="ウェイクワードのモデル（.onnx）")
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
                         help="検知のしきい値 0〜1（既定：%(default)s）")
+    parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE_FRAMES,
+                        help="何フレーム続けてしきい値を超えたら反応するか。1 フレーム 80ms（既定：%(default)s）")
     parser.add_argument("--show-scores", action="store_true", help="約 1 秒ごとに最大スコアを表示する")
     args = parser.parse_args()
 
     load_env_file()
     config = load_audio_config()
-    detector = WakeWordDetector(args.model, threshold=args.threshold)
-    print(f"モデル：{detector.name}／しきい値：{args.threshold}／入力デバイス：{config.input_device or '既定'}")
+    detector = WakeWordDetector(args.model, threshold=args.threshold, patience_frames=args.patience)
+    print(f"モデル：{detector.name}／しきい値：{args.threshold}／連続 {args.patience} フレーム"
+          f"／入力デバイス：{config.input_device or '既定'}")
     print("「hey jarvis」と話しかけてください（Ctrl+C で終了）")
 
     detections = 0
@@ -49,7 +58,8 @@ def main() -> int:
             if detected:
                 detections += 1
                 now = datetime.now().strftime("%H:%M:%S")
-                print(f"[{now}] 検知しました（{detections} 回目、スコア {detector.last_score:.2f}）")
+                print(f"[{now}] 検知しました（{detections} 回目、スコア {detector.last_score:.2f}、"
+                      f"連続 {detector.last_run_frames} フレーム）")
 
             if args.show_scores:
                 peak = max(peak, detector.last_score)

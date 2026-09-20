@@ -8,6 +8,8 @@ from voice_assistant.ai.gemini import (
     API_BASE,
     DEFAULT_FALLBACK_MODELS,
     DEFAULT_MODEL,
+    DEFAULT_THINKING_LEVEL,
+    FALLBACK_THINKING_LEVEL,
     GeminiClient,
     build_request,
     chat_client_from_config,
@@ -206,3 +208,10 @@ def test_chat_client_from_config_defaults_and_none():
     assert [m.name for m in default._models] == [DEFAULT_MODEL, *DEFAULT_FALLBACK_MODELS]
     only_primary = chat_client_from_config(GeminiConfig(api_key="k", fallback_models=()))
     assert [m.name for m in only_primary._models] == [DEFAULT_MODEL]
+
+
+def test_fallback_models_use_minimal_thinking():
+    client = chat_client_from_config(GeminiConfig(api_key="k"))
+    primary, *fallbacks = client._models
+    assert primary.client.thinking_level == DEFAULT_THINKING_LEVEL
+    assert [m.client.thinking_level for m in fallbacks] == [FALLBACK_THINKING_LEVEL] * len(fallbacks)

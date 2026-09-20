@@ -22,6 +22,9 @@ DEFAULT_THINKING_LEVEL = "minimal"
 # 無料枠の 1 日の上限はモデルごと（gemini-3.6-flash は 20 回/日だった）。
 # gemini-3.8-flash は混雑（503）、gemini-3.7-flash は時間切れだったため入れていない。
 DEFAULT_FALLBACK_MODELS = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
+# 予備のモデルで使う思考の量。指定しないと質問によって数秒かかることがあったため最小にする。
+# 上記 2 つが minimal を受け付けることは確認済み（2026-09-20）。受け付けないモデルを予備にする場合は要変更。
+FALLBACK_THINKING_LEVEL = "minimal"
 
 
 def build_request(
@@ -186,12 +189,12 @@ def chat_client_from_config(
 ) -> FallbackChatClient:
     """設定（.env）から、優先のモデルと予備のモデルを順に使う ChatClient を作る。
 
-    予備のモデルは、それぞれのモデルの既定の思考の量で使う（思考の量の指定はモデルによって使える値が違うため）。
+    予備のモデルの思考の量は FALLBACK_THINKING_LEVEL にそろえる。
     """
     primary = client_from_config(config)
     names = DEFAULT_FALLBACK_MODELS if config.fallback_models is None else config.fallback_models
     models: list[tuple[str, GeminiClient]] = [(primary.model, primary)]
     for name in names:
         if name not in (m for m, _ in models):
-            models.append((name, GeminiClient(config.api_key, name)))
+            models.append((name, GeminiClient(config.api_key, name, thinking_level=FALLBACK_THINKING_LEVEL)))
     return FallbackChatClient(models, on_status=on_status)

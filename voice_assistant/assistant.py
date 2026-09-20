@@ -36,6 +36,9 @@ OUTPUT_WAKE_SECONDS = 2.0
 # 再生にかかった時間が音声の長さのこの倍を超えたら、遅くなったとみなして記録する
 # （読み上げが途中から遅く・低くなる現象を調べるため。2026-09-20）
 SLOW_PLAYBACK_FACTOR = 1.15
+# 話し終わりの判定から読み上げ開始までがこの秒数を超えたら、会話ログにも記録する
+# （技術ログは Pi の再起動で消えるため。2026-09-20）
+SLOW_RESPONSE_SECONDS = 5.0
 
 
 def is_slow_playback(expected_seconds: float, elapsed_seconds: float) -> bool:
@@ -141,11 +144,18 @@ class Assistant:
 
         answer = reply_or_error_message(self._ai, self._history, text, self._log)
         answered = time.perf_counter()
-        self._speak(answer, before_play=lambda: logger.info(
-            "話し終わりの判定から読み上げ開始まで %.2f 秒（認識 %.2f、AI %.2f、合成 %.2f）",
-            time.perf_counter() - started, recognized - started, answered - recognized,
-            time.perf_counter() - answered,
-        ))
+        self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
+
+    def _log_response_time(self, started: float, recognized: float, answered: float) -> None:
+        """話し終わりの判定から読み上げ開始までの時間を記録する。遅いときは会話ログにも残す。"""
+        now = time.perf_counter()
+        total, recognition, ai, synthesis = now - started, recognized - started, answered - recognized, now - answered
+        logger.info("話し終わりの判定から読み上げ開始まで %.2f 秒（認識 %.2f、AI %.2f、合成 %.2f）",
+                    total, recognition, ai, synthesis)
+        if total >= SLOW_RESPONSE_SECONDS:
+            model = getattr(self._ai, "last_model", None)
+            self._log.status(f"応答に時間がかかりました（合計 {total:.1f} 秒／認識 {recognition:.1f}／"
+                             f"AI {ai:.1f}／合成 {synthesis:.1f}" + (f"／モデル {model}）" if model else "）"))
 
     def _speak(self, text: str, before_play: Callable[[], None] | None = None) -> None:
         """文章を読み上げる（終わるまで待つ）。合成に失敗したら会話ログに残す。"""

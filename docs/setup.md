@@ -158,6 +158,10 @@ nano ~/voice-assistant/.env
   回復したら優先のモデルに戻る。切り替えは会話ログの「状態」に、予備のモデルでの返答は「返答（モデル名）」と書かれる。
 - `FOLLOWUP_SECONDS` / `FOLLOWUP_MAX_TURNS`：返答のあと、ウェイクワードなしで続けて話せる秒数と回数
   （空なら 3 秒・3 回）。`FOLLOWUP_SECONDS=0` にすると、続けて話す機能を使わない。
+- `VOSK_MODEL_DIR`：音声認識に使うモデル（`models/` の中のフォルダ名）。空なら既定の大型
+  （`vosk-model-ja-0.22`）。小型（`vosk-model-small-ja-0.22`）に戻すときに書く。
+  2026-09-21 に小型から大型へ切り替えた。実測では、小型が誤った 3 件が大型では正しくなり、
+  Pi での認識速度も約 2 倍（実時間比 0.62 → 0.32）だった。代わりに置き場所が 95MB → 1.6GB に増える。
 - `WAKEWORD_*`：ウェイクワード検知の調整値（空なら既定）。変えたら
   `systemctl --user restart voice-assistant` で反映する。配置し直さずに試せる。
   - `WAKEWORD_THRESHOLD`（既定 0.35）：スコアがこの値以上のフレームを「立ち上がり」として数える。
@@ -178,7 +182,7 @@ nano ~/voice-assistant/.env
 | openwakeword/embedding_model.onnx | ウェイクワード（特徴量） | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
 | openwakeword/hey_jarvis_v0.1.onnx | ウェイクワード「hey jarvis」 | 同上 | 1.3MB | CC BY-NC-SA 4.0 |
 | silero_vad/silero_vad.onnx | 発話区間の検出 | Silero VAD v6.2.1（公式リポジトリ） | 2.3MB | MIT |
-| vosk-model-small-ja-0.22.zip（展開後 `vosk-model-small-ja-0.22/`） | 音声認識（日本語） | Vosk 公式サイト | 48MB（展開後 95MB） | Apache 2.0 |
+| vosk-model-ja-0.22.zip（展開後 `vosk-model-ja-0.22/`） | 音声認識（日本語） | Vosk 公式サイト | 998MB（展開後 1.6GB） | Apache 2.0 |
 
 - CC BY-NC-SA 4.0 は非商用に限る。モデルはリポジトリに含めない。
 - 入手先がなくなっていた場合に備え、動作中の機体の `models/` をバックアップしておくとよい。

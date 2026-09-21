@@ -1,6 +1,7 @@
 """音声認識（Vosk の日本語モデル）。
 
-モデルは models/vosk-model-small-ja-0.22/ に置く（tools/setup_pi.sh がダウンロードして展開する）。
+モデルは models/ に置く（tools/setup_pi.sh がダウンロードして展開する）。
+どのモデルを使うかは .env の VOSK_MODEL_DIR で変えられる（config.SttConfig）。
 """
 
 import json
@@ -9,10 +10,16 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import PROJECT_ROOT
+from .config import PROJECT_ROOT, SttConfig
 
 SAMPLE_RATE = 16000
-DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "vosk-model-small-ja-0.22"
+MODELS_DIR = PROJECT_ROOT / "models"
+DEFAULT_MODEL_DIR = MODELS_DIR / SttConfig.model_dir
+
+
+def model_dir_from_config(config: SttConfig) -> Path:
+    """.env の設定から、使うモデルのフォルダを決める。"""
+    return MODELS_DIR / config.model_dir
 
 # 半角の英数字・記号以外（ひらがな・カタカナ・漢字など）
 _WIDE = r"[^\x00-\x7f]"

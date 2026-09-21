@@ -69,3 +69,12 @@ def test_stream_reset_discards_segments():
 
 def test_stream_nothing_heard():
     assert RecognitionStream(FakeKaldi([], [], "")).finish() == ""
+
+
+def test_model_dir_from_config():
+    """.env の設定で、使うモデルのフォルダが決まる。"""
+    from voice_assistant.config import SttConfig
+    from voice_assistant.stt import MODELS_DIR, model_dir_from_config
+
+    assert model_dir_from_config(SttConfig()) == MODELS_DIR / "vosk-model-ja-0.22"
+    assert model_dir_from_config(SttConfig(model_dir="x")) == MODELS_DIR / "x"

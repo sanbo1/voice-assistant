@@ -2,10 +2,12 @@ from voice_assistant.config import (
     AssistantConfig,
     AudioConfig,
     GeminiConfig,
+    SttConfig,
     WakeWordConfig,
     load_assistant_config,
     load_audio_config,
     load_gemini_config,
+    load_stt_config,
     load_wakeword_config,
     parse_device,
 )
@@ -70,6 +72,20 @@ def test_load_assistant_config_ignores_invalid_values():
     config = load_assistant_config({"FOLLOWUP_SECONDS": "x", "FOLLOWUP_MAX_TURNS": " "})
     assert config == AssistantConfig()
     assert load_assistant_config({"FOLLOWUP_SECONDS": "0"}).followup_seconds == 0.0
+
+
+def test_load_stt_config_defaults():
+    """既定は大型モデル（2026-09-21 に小型から切り替え）。"""
+    assert load_stt_config({}) == SttConfig(model_dir="vosk-model-ja-0.22")
+
+
+def test_load_stt_config_from_env():
+    config = load_stt_config({"VOSK_MODEL_DIR": "vosk-model-small-ja-0.22"})
+    assert config.model_dir == "vosk-model-small-ja-0.22"
+
+
+def test_load_stt_config_ignores_blank():
+    assert load_stt_config({"VOSK_MODEL_DIR": "  "}) == SttConfig()
 
 
 def test_load_wakeword_config_defaults():

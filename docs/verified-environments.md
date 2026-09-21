@@ -500,3 +500,78 @@ models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
 models/silero_vad/silero_vad.onnx  1a153a22f4509e29
 models/vosk-model-small-ja-0.22.zip  efa092d280153a77
 ```
+
+---
+
+## 2026-09-21：音声認識モデルの大型化（vosk-model-small-ja-0.22 → vosk-model-ja-0.22）
+
+- 結果：成功（大型モデルで運用開始）
+  - 既存の録音 15 件で小型と比べ、**明確な改善 3 件・明確な悪化 0 件**
+    （「今日の天気をほしいげ」→「教えて」、「一二三四五六七八九いう」→「…九十」、語尾の脱落が解消）
+  - 大型でも直らない誤りが 2 件あり、万能ではない。また**認識結果の先頭に余分な「ん」が付くことがある**
+  - 認識速度は Pi で**約 2 倍速い**（音声 70.5 秒ぶんの認識：小型 43.5 秒／大型 22.3 秒。実時間比 0.62 → 0.32）
+  - メモリ：プロセスの実使用 1.87GB（システムに 13GB の空き）。モデルは全部メモリに載るため、
+    最初の認識だけ遅いということはない
+  - ディスク：モデルは展開後 1.6GB（zip 998MB も残す）。空きは 14GB
+  - **起動は遅くなった**。電源投入からウェイクワードを受け付けるまで約 81 秒
+    （13:19:05 サービス開始 → 13:20:26「起動しました」。**この測定は別の読み込み処理と
+    SD カードを取り合っていたため、実際はこれより速いと思われる。競合なしの値は未測定**）
+  - 参考：この SD カード（2015 年製）は冷えた状態の読み込みが遅く、小型モデルで
+    7.57 秒（キャッシュ後は 0.77 秒）と約 10 倍の差がある。SD カードを交換すれば起動の問題は小さくなる
+  - モデルの真正性：zip の MD5 が Vosk 公式の model-list.json の記載（e7ab21ff…）およびサイズと一致
+  - 切り替えは `.env` の `VOSK_MODEL_DIR` で行う（小型モデルも Pi に残してあり、すぐ戻せる）
+  - PC（Windows 11、Python 3.11.9）で pytest 149 件成功
+- 機体：Raspberry Pi 5 Model B Rev 1.1（メモリ 15.8 GiB）
+- OS：Debian GNU/Linux 12 (bookworm)（イメージ：Raspberry Pi reference 2025-05-13）
+- カーネル：6.12.34+rpt-rpi-2712（aarch64、ページサイズ 16384）
+- Python：3.11.2（pip 23.0.1）
+
+apt パッケージ（tools/apt-packages.txt に載せているもの）：
+
+```
+libportaudio2=19.6.0-1.2
+open-jtalk=1.11-3
+open-jtalk-mecab-naist-jdic=1.11-3
+hts-voice-nitech-jp-atr503-m001=1.05-7
+```
+
+pip パッケージ（venv の pip freeze。このまま requirements として使える）：
+
+```
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.26.0
+numpy==2.4.6
+onnxruntime==1.30.0
+openwakeword==0.6.0
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.0
+python-dotenv==1.2.3
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sounddevice==0.5.6
+srt==3.5.3
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0
+vosk==0.3.45
+websockets==17.1
+```
+
+モデル（tools/models.txt に載せているもの。SHA-256 の先頭 16 文字）：
+
+```
+models/openwakeword/melspectrogram.onnx  ba2b0e0f8b7b8753
+models/openwakeword/embedding_model.onnx  70d164290c1d095d
+models/openwakeword/hey_jarvis_v0.1.onnx  94a13cfe60075b13
+models/silero_vad/silero_vad.onnx  1a153a22f4509e29
+models/vosk-model-ja-0.22.zip  af620db815ef716f
+```

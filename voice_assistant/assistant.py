@@ -14,12 +14,12 @@ import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
-from .config import AssistantConfig, AudioConfig, WakeWordConfig
+from .config import AssistantConfig, AudioConfig, SttConfig, WakeWordConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
 from .sounds import listen_chime, ready_chime, wake_chime
-from .stt import RecognitionStream, VoskRecognizer
+from .stt import RecognitionStream, VoskRecognizer, model_dir_from_config
 from .tts import OpenJTalk, to_speakable
 from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
 from .wakeword import FRAME_SAMPLES, WakeWordDetector
@@ -79,6 +79,7 @@ class Assistant:
         log: ConversationLog,
         assistant_config: AssistantConfig = AssistantConfig(),
         wakeword_config: WakeWordConfig = WakeWordConfig(),
+        stt_config: SttConfig = SttConfig(),
         history: ConversationHistory | None = None,
         endpoint_config: EndpointConfig = EndpointConfig(),
     ):
@@ -91,7 +92,7 @@ class Assistant:
         self._detector = WakeWordDetector(config=wakeword_config)
         self._wake_note = ""  # 直前の検知のスコア（空振りだったときに記録へ残すため）
         self._vad = SileroVad()
-        self._recognizer = VoskRecognizer()
+        self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
         self._tts = OpenJTalk()
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
         self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)

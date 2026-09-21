@@ -11,6 +11,7 @@ from .config import (
     load_audio_config,
     load_env_file,
     load_gemini_config,
+    load_stt_config,
     load_wakeword_config,
 )
 from .conversation_log import ConversationLog
@@ -26,7 +27,8 @@ def main() -> int:
         ai = chat_client_from_config(load_gemini_config(), on_status=log.status)
         Assistant(ai, audio_config=load_audio_config(), log=log,
                   assistant_config=load_assistant_config(),
-                  wakeword_config=load_wakeword_config()).run()
+                  wakeword_config=load_wakeword_config(),
+                  stt_config=load_stt_config()).run()
     except AiError as e:
         log.error(str(e))
         return 1

@@ -75,6 +75,21 @@ def load_assistant_config(env: Mapping[str, str] = os.environ) -> AssistantConfi
 
 
 @dataclass(frozen=True)
+class SttConfig:
+    """音声認識のモデル（models/ の中のフォルダ名）。
+
+    既定は大型モデル（1.6GB）。2026-09-21 の実測では、小型より精度が高く認識も約 2 倍速い。
+    小型（vosk-model-small-ja-0.22、95MB）に戻したいときは .env で指定する。
+    """
+
+    model_dir: str = "vosk-model-ja-0.22"
+
+
+def load_stt_config(env: Mapping[str, str] = os.environ) -> SttConfig:
+    return SttConfig(model_dir=(env.get("VOSK_MODEL_DIR") or "").strip() or SttConfig.model_dir)
+
+
+@dataclass(frozen=True)
 class WakeWordConfig:
     """ウェイクワード検知の調整値。意味は wakeword.TriggerGate を参照。"""
 

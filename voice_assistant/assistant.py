@@ -102,10 +102,19 @@ class Assistant:
     def run(self) -> None:
         """止められるまで（Ctrl+C など）動き続ける。"""
         self._log.status("起動しました")
+        # 起動直後の読み上げが聞こえないことがあるため、そのときの出力先を残す（2026-09-21）
+        before = audio.output_summary(self._audio.output_device)
+        logger.info("起動時の出力先：%s", before)
+        self._log.status(f"起動時の出力先：{before}")
         audio.play(np.zeros(audio.OUTPUT_SAMPLE_RATE // 2, dtype=np.int16), audio.OUTPUT_SAMPLE_RATE,
                    device=self._audio.output_device)
         time.sleep(OUTPUT_WAKE_SECONDS)
         self._speak(STARTUP_MESSAGE)
+        after = audio.output_summary(self._audio.output_device)
+        if after != before:
+            # 読み上げの途中で出力先が増えた・変わった場合（＝読み上げが間に合わなかった可能性）
+            logger.info("読み上げのあと出力先が変わりました：%s", after)
+            self._log.status(f"読み上げのあと出力先が変わりました：{after}")
         while True:
             try:
                 # 待ち受けに戻ったことを知らせる（鳴らし終わってからマイクを開く）

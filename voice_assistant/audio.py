@@ -4,6 +4,7 @@ device に None を渡すと既定のデバイスを使う。Pi 上では PipeWi
 """
 
 import logging
+import subprocess
 from collections.abc import Iterator
 
 import numpy as np
@@ -25,6 +26,39 @@ logger = logging.getLogger(__name__)
 def list_devices() -> str:
     """認識している入出力デバイスの一覧（表示用の文字列）。"""
     return str(sd.query_devices())
+
+
+def parse_sinks(text: str) -> str:
+    """`pactl list sinks short` の出力を「名前（状態）」の並びにする。
+
+    1 行は「番号<タブ>名前<タブ>ドライバ<タブ>形式<タブ>状態」。
+    """
+    sinks = [f"{f[1]}（{f[-1]}）" for f in (line.split("\t") for line in text.splitlines()) if len(f) >= 5]
+    return "、".join(sinks) if sinks else "なし"
+
+
+def sink_summary() -> str:
+    """PipeWire の出力先（シンク）の一覧と状態。取れないときはその理由を返す。"""
+    try:
+        result = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"取得できず（{type(e).__name__}）"
+    if result.returncode != 0:
+        return f"取得できず（pactl の終了コード {result.returncode}）"
+    return parse_sinks(result.stdout.decode("utf-8", errors="replace"))
+
+
+def output_summary(device: Device = None) -> str:
+    """いまの出力先の様子を 1 行にまとめる。
+
+    起動直後の読み上げが聞こえないことがあるため、そのときの出力先を記録して原因を調べる
+    （2026-09-21。技術ログは再起動で消えるので、会話ログに残す）。
+    """
+    try:
+        name = sd.query_devices(device, "output")["name"]
+    except Exception as e:  # デバイスが無い・開けないなど。記録が目的なので起動は止めない
+        name = f"不明（{type(e).__name__}）"
+    return f"デバイス「{name}」／シンク {sink_summary()}"
 
 
 def record(seconds: float, *, device: Device = None, sample_rate: int = SAMPLE_RATE) -> np.ndarray:

@@ -1,9 +1,17 @@
 import io
+import re
 
 import numpy as np
 import pytest
 
-from voice_assistant.tts import READINGS_FILE, apply_readings, load_readings, to_speakable
+from voice_assistant.tts import (
+    MAX_RUN_CHARS,
+    READINGS_FILE,
+    apply_readings,
+    load_readings,
+    split_long_runs,
+    to_speakable,
+)
 from voice_assistant.wav import read_wav, write_wav
 
 
@@ -33,6 +41,47 @@ def test_numbered_list():
 def test_empty():
     assert to_speakable("") == ""
     assert to_speakable("\n  \n") == ""
+
+
+def test_short_run_is_not_split():
+    """区切りのない部分が短ければ、そのまま。"""
+    assert split_long_runs("今日はよい天気です。") == "今日はよい天気です。"
+
+
+def test_long_run_is_split_after_a_particle():
+    """長く続く部分は、助詞のあと（次が漢字・カタカナのところ）で区切る。"""
+    assert split_long_runs("今日は朝からとてもよい天気なので洗濯物がよく乾きそうです。") ==         "今日は朝からとてもよい天気なので 洗濯物がよく乾きそうです。"
+
+
+def test_split_happens_in_each_part_between_punctuation():
+    """句読点で区切られた部分ごとに数える。"""
+    text = "戦う時はゴムの実の能力で体を変幻自在に伸ばして動きます。"
+    assert split_long_runs(text) == "戦う時はゴムの実の能力で体を変幻自在に 伸ばして動きます。"
+
+
+def test_not_split_inside_a_word():
+    """助詞に見える文字でも、次がひらがなのときは語の途中のおそれがあるので切らない。"""
+    # 「はなし」の「は」や「にわ」の「に」で切ってしまわないこと
+    text = "はなしのつづきはにわとりのはなしですからきいてくださいね。"
+    assert split_long_runs(text) == text
+
+
+def test_no_safe_break_leaves_the_run_alone():
+    """安全な切れ目がなければ、長くてもそのままにする。"""
+    text = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ。"
+    assert split_long_runs(text) == text
+
+
+def test_each_piece_is_within_the_limit():
+    """区切ったあとは、どの部分も上限以下になる（切れ目が見つかる場合）。"""
+    text = "ルフィの身長は百七十四センチで、戦う時はゴムゴムの実の能力で体を変幻自在に伸ばして動きます。"
+    for piece in re.split(r"[、。\s]+", split_long_runs(text)):
+        assert len(piece) <= MAX_RUN_CHARS
+
+
+def test_to_speakable_inserts_breaks():
+    """整える処理の最後に区切りが入る。"""
+    assert to_speakable("今日は朝からとてもよい天気なので洗濯物がよく乾きそうです。") ==         "今日は朝からとてもよい天気なので 洗濯物がよく乾きそうです。"
 
 
 def test_read_wav_from_bytes(tmp_path):

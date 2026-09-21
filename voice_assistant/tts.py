@@ -26,6 +26,22 @@ DEFAULT_SPEED = 1.2
 # 辞書が読みを誤る言葉と、正しい読みの表（見つけたらこのファイルに 1 行ずつ追加する）
 READINGS_FILE = PROJECT_ROOT / "config" / "readings.tsv"
 
+# 区切りのない部分がこの文字数を超えると、Open JTalk が極端に長く合成する（2026-09-21 に Pi で実測）。
+# 例：「戦う時はゴムの実の能力で体を変幻自在に伸ばして動きます。」は 13.94 秒。読点を 1 つ入れると 5.10 秒。
+# 値は、過去の返答 60 件を 14・16・18・20・22 で合成し直して決めた。20 なら、間延びしていた 7 件が
+# いちばん細かく区切った場合と同じところまで直り、余計な区切り（もともと正常な回に入るもの）は
+# 16 のときの 25 件から 16 件に減る。22 まで上げると間延びが直りきらない回が出る。
+MAX_RUN_CHARS = 20
+# 合成に渡すときの区切り。空白は読点と同じ働きをする（休止の長さも同じ）
+BREAK_MARKER = " "
+# この助詞のあとは文節の切れ目になりやすい
+_BREAK_PARTICLES = "はがをにでともて"
+# 助詞の次がこれ（漢字・カタカナ）なら、新しい語の始まりとみなす。
+# ひらがなが続くときは語の途中のおそれがあるので切らない（「はなし」を「は／なし」にしないため）
+_WORD_START = re.compile(r"[一-鿿゠-ヿ々ー]")
+# すでに区切りとして働いている文字
+_EXISTING_BREAK = re.compile(r"[、。！？!?\s　]")
+
 _URL = re.compile(r"https?://\S+")
 # Markdown などの装飾に使われる記号（読み上げると不自然になるもの）
 _DECORATION = re.compile(r"[*#`>|_~]+")
@@ -57,9 +73,54 @@ def apply_readings(text: str, readings: Mapping[str, str]) -> str:
     return text
 
 
+def _break_points(run: str, limit: int) -> list[int]:
+    """区切りを入れる位置（その文字の「あと」で切る）を選ぶ。安全な切れ目がなければ切らない。"""
+    candidates = [i for i in range(len(run) - 1)
+                  if run[i] in _BREAK_PARTICLES and _WORD_START.match(run[i + 1])]
+    points, start = [], 0
+    while len(run) - start > limit:
+        nearby = [i for i in candidates if start < i + 1 <= start + limit]
+        # 範囲内に切れ目がなければ、その先のいちばん近い切れ目を使う（切らないよりは短くなる）
+        chosen = nearby[-1] if nearby else next((i for i in candidates if i + 1 > start + limit), None)
+        if chosen is None:
+            return points
+        points.append(chosen)
+        start = chosen + 1
+    return points
+
+
+def _split_run(run: str, limit: int, marker: str) -> str:
+    pieces, prev = [], 0
+    for point in _break_points(run, limit):
+        pieces.append(run[prev:point + 1])
+        prev = point + 1
+    pieces.append(run[prev:])
+    return marker.join(pieces)
+
+
+def split_long_runs(text: str, limit: int = MAX_RUN_CHARS, marker: str = BREAK_MARKER) -> str:
+    """句読点のない長い部分に区切りを入れる（Open JTalk が極端に長く合成するのを防ぐ）。
+
+    もともと間延びしない文章にも区切りが入ることがあり、わずかに不自然になるが、
+    間延びよりはよいと判断した（2026-09-21 に聞き比べて決定）。
+    """
+    out: list[str] = []
+    run: list[str] = []
+    for char in text:
+        if _EXISTING_BREAK.match(char):
+            out.append(_split_run("".join(run), limit, marker))
+            out.append(char)
+            run = []
+        else:
+            run.append(char)
+    out.append(_split_run("".join(run), limit, marker))
+    return "".join(out)
+
+
 def to_speakable(text: str, readings: Mapping[str, str] | None = None) -> str:
     """AI の返答を読み上げ向けに整える。記号・URL・絵文字を除き、改行は句点の区切りにし、誤読する言葉を直す。
 
+    最後に、句読点のない長い部分へ区切りを入れる（間延び対策。split_long_runs を参照）。
     readings を省略すると、置き換え表のファイルをそのつど読む（ファイルを直せば、再起動なしで反映される）。
     """
     text = _URL.sub("", text)
@@ -68,7 +129,8 @@ def to_speakable(text: str, readings: Mapping[str, str] | None = None) -> str:
     text = _EMOJI.sub("", text)
     lines = [" ".join(line.split()) for line in text.splitlines()]
     sentences = [line if line.endswith(("。", "！", "？", "!", "?")) else line + "。" for line in lines if line]
-    return apply_readings("".join(sentences), load_readings() if readings is None else readings)
+    spoken = apply_readings("".join(sentences), load_readings() if readings is None else readings)
+    return split_long_runs(spoken)
 
 
 class OpenJTalk:

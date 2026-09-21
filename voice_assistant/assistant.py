@@ -14,7 +14,7 @@ import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
-from .config import AssistantConfig, AudioConfig
+from .config import AssistantConfig, AudioConfig, WakeWordConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
@@ -78,6 +78,7 @@ class Assistant:
         audio_config: AudioConfig,
         log: ConversationLog,
         assistant_config: AssistantConfig = AssistantConfig(),
+        wakeword_config: WakeWordConfig = WakeWordConfig(),
         history: ConversationHistory | None = None,
         endpoint_config: EndpointConfig = EndpointConfig(),
     ):
@@ -87,7 +88,8 @@ class Assistant:
         self._config = assistant_config
         self._history = history or ConversationHistory()
         self._endpoint_config = endpoint_config
-        self._detector = WakeWordDetector()
+        self._detector = WakeWordDetector(config=wakeword_config)
+        self._wake_note = ""  # 直前の検知のスコア（空振りだったときに記録へ残すため）
         self._vad = SileroVad()
         self._recognizer = VoskRecognizer()
         self._tts = OpenJTalk()
@@ -115,7 +117,7 @@ class Assistant:
 
     def handle_one_turn(self) -> None:
         """ウェイクワードを待って質問に答え、そのあとは決めた回数まで続けて話せるようにする。"""
-        if not self._answer_once(self._wake_and_listen):
+        if not self._answer_once(self._wake_and_listen, after_wake=True):
             return
         for remaining in range(self._config.followup_max_turns - 1, -1, -1):
             if self._config.followup_seconds <= 0:
@@ -123,11 +125,19 @@ class Assistant:
             if not self._answer_once(lambda: self._listen_again(remaining)):
                 return
 
-    def _answer_once(self, listen: Callable[[], tuple[Utterance, RecognitionStream]]) -> bool:
-        """聞き取って答える。続けて話せる状態にしてよければ True を返す。"""
+    def _answer_once(self, listen: Callable[[], tuple[Utterance, RecognitionStream]],
+                     *, after_wake: bool = False) -> bool:
+        """聞き取って答える。続けて話せる状態にしてよければ True を返す。
+
+        after_wake が True のとき、質問にならなかった回は「空振り」として会話ログに残す
+        （ウェイクワードの誤反応をあとから数えられるようにするため。2026-09-21）。
+        """
         utterance, recognition = listen()
         if utterance.samples is None:
-            self._log.status(f"聞き取りを終了しました（{utterance.reason.value}）")
+            if after_wake:
+                self._log_empty_wake(utterance.reason.value)
+            else:
+                self._log.status(f"聞き取りを終了しました（{utterance.reason.value}）")
             return False
 
         started = time.perf_counter()
@@ -137,6 +147,8 @@ class Assistant:
         if len(text) < MIN_QUESTION_CHARS:
             # 周りの音を拾っただけのことが多いため、AI には送らず、何も言わずに待ち受けへ戻る
             # （ウェイクワードの誤反応のたびに話すとうるさいため。2026-09-20）
+            if after_wake:
+                self._log_empty_wake("聞き取りが短い")
             return False
 
         answer = reply_or_error_message(self._ai, self._history, text, self._log)
@@ -153,12 +165,14 @@ class Assistant:
                 if self._detector.process(frame):
                     break
             audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
-            # 直前のスコアの並びも残す（本物の反応と誤反応の違いを見分ける材料にする）
-            scores = " ".join(f"{score:.2f}" for score in self._detector.last_scores)
-            logger.info("ウェイクワードを検知（スコア %.2f、直前 %s）", self._detector.last_score, scores)
+            # 最大スコアとスコアの並びも残す（本物の反応と誤反応の違いを見分ける材料にする）
+            self._wake_note = (f"最大 {self._detector.last_peak:.2f}、"
+                               f"並び {' '.join(f'{score:.2f}' for score in self._detector.last_scores)}"
+                               + (f"、見送り {self._detector.last_suppressed} 回"
+                                  if self._detector.last_suppressed else ""))
+            logger.info("ウェイクワードを検知（%s）", self._wake_note)
             # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
-            self._log.status("聞き取り中…話してください（ウェイクワードを検知、"
-                             f"スコア {self._detector.last_score:.2f}、直前 {scores}）")
+            self._log.status(f"聞き取り中…話してください（ウェイクワードを検知、{self._wake_note}）")
             return self._collect(stream, self._endpoint_config)
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる
@@ -189,6 +203,15 @@ class Assistant:
         )
         return utterance, recognition
 
+    def _log_empty_wake(self, reason: str) -> None:
+        """ウェイクワードで始まった回が質問にならなかったことを、検知時のスコアと一緒に記録する。
+
+        誤反応だったかをあとから調べるための材料
+        （本物でも、話しかけずに黙っていればここに来る）。
+        """
+        logger.info("ウェイクワードは空振り（%s、%s）", reason, self._wake_note)
+        self._log.status(f"ウェイクワードは空振りでした（{reason}、{self._wake_note}）")
+
     def _log_response_time(self, started: float, recognized: float, answered: float) -> None:
         """話し終わりの判定から読み上げ開始までの時間を記録する。遅いときは会話ログにも残す。"""
         now = time.perf_counter()
@@ -214,8 +237,12 @@ class Assistant:
             before_play()
         expected = len(samples) / sample_rate
         start = time.perf_counter()
-        audio.play(samples, sample_rate, device=self._audio.output_device)
+        underflowed = audio.play(samples, sample_rate, device=self._audio.output_device)
         elapsed = time.perf_counter() - start
+        if underflowed:
+            # 局所的な間延びは、全体の長さではほとんど変わらないため下の倍率では拾えない（2026-09-21）
+            logger.warning("読み上げ中に音が途切れました（%.1f 秒の音声、再生 %.1f 秒）", expected, elapsed)
+            self._log.status(f"読み上げ中に音が途切れました（{expected:.1f} 秒の音声、再生 {elapsed:.1f} 秒）")
         # 遅くなかった回も記録しておき、あとから比べられるようにする（2026-09-20）
         logger.info("読み上げ：%.1f 秒の音声に %.1f 秒（%.2f 倍）", expected, elapsed, elapsed / max(expected, 1e-9))
         if is_slow_playback(expected, elapsed):

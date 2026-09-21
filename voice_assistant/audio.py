@@ -35,10 +35,19 @@ def record(seconds: float, *, device: Device = None, sample_rate: int = SAMPLE_R
     return data[:, 0].copy()
 
 
-def play(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> None:
-    """音声を再生し、終わるまで待つ。"""
+def play(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> bool:
+    """音声を再生し、終わるまで待つ。再生中に音が途切れていたら True を返す。
+
+    途切れ（バッファ不足）は、波形はそのままで時間だけ伸びる形で聞こえるため、
+    「間延びして聞こえる」現象の原因かどうかを調べる材料にする（2026-09-21）。
+    再生のしかたは変えていない（sounddevice が記録している結果を読むだけ）。
+    """
     sd.play(samples, samplerate=sample_rate, device=device, latency=PLAYBACK_LATENCY)
     sd.wait()
+    try:
+        return bool(sd.get_status().output_underflow)
+    except RuntimeError:  # 直前の再生の記録がない場合（判断できないので、途切れなしとして扱う）
+        return False
 
 
 def play_nowait(samples: np.ndarray, sample_rate: int, *, device: Device = None) -> None:

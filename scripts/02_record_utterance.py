@@ -8,6 +8,7 @@
 """
 
 import argparse
+import dataclasses
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,20 +18,27 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from voice_assistant import audio  # noqa: E402
-from voice_assistant.config import PROJECT_ROOT, load_audio_config, load_env_file  # noqa: E402
+from voice_assistant.config import (  # noqa: E402
+    PROJECT_ROOT,
+    load_audio_config,
+    load_env_file,
+    load_wakeword_config,
+)
 from voice_assistant.frames import rechunk  # noqa: E402
 from voice_assistant.levels import rms_dbfs  # noqa: E402
 from voice_assistant.sounds import wake_chime  # noqa: E402
 from voice_assistant.vad import EndpointConfig, Endpointer, SileroVad, collect_utterance  # noqa: E402
-from voice_assistant.wakeword import DEFAULT_THRESHOLD, FRAME_SAMPLES, WakeWordDetector  # noqa: E402
+from voice_assistant.wakeword import FRAME_SAMPLES, WakeWordDetector  # noqa: E402
 from voice_assistant.wav import write_wav  # noqa: E402
 
 
 def main() -> int:
+    load_env_file()
     defaults = EndpointConfig()
+    wakeword_defaults = load_wakeword_config()
     parser = argparse.ArgumentParser(description="録音と発話区間検出の確認")
     parser.add_argument("--no-wakeword", action="store_true", help="ウェイクワードを待たずに聞き取りを始める")
-    parser.add_argument("--wake-threshold", type=float, default=DEFAULT_THRESHOLD,
+    parser.add_argument("--wake-threshold", type=float, default=wakeword_defaults.threshold,
                         help="ウェイクワード検知のしきい値 0〜1（既定：%(default)s）")
     parser.add_argument("--threshold", type=float, default=defaults.threshold,
                         help="発話区間の判定で声とみなす確率（既定：%(default)s）")
@@ -43,11 +51,11 @@ def main() -> int:
     parser.add_argument("--no-chime", action="store_true", help="ウェイクワード検知時にお知らせ音を鳴らさない")
     args = parser.parse_args()
 
-    load_env_file()
     config = load_audio_config()
     endpoint_config = EndpointConfig(threshold=args.threshold, end_silence_seconds=args.end_silence)
     vad = SileroVad()
-    detector = None if args.no_wakeword else WakeWordDetector(threshold=args.wake_threshold)
+    wakeword = dataclasses.replace(wakeword_defaults, threshold=args.wake_threshold)
+    detector = None if args.no_wakeword else WakeWordDetector(config=wakeword)
     chime = wake_chime(audio.SAMPLE_RATE)
 
     stream = audio.stream_frames(FRAME_SAMPLES, device=config.input_device)

@@ -75,6 +75,30 @@ def load_assistant_config(env: Mapping[str, str] = os.environ) -> AssistantConfi
 
 
 @dataclass(frozen=True)
+class WakeWordConfig:
+    """ウェイクワード検知の調整値。意味は wakeword.TriggerGate を参照。"""
+
+    # スコアがこの値以上のフレームを「立ち上がり」として数える
+    threshold: float = 0.35
+    # 何フレーム続けてしきい値を超えたら、確認窓に進むか（1 フレーム 80ms）
+    patience_frames: int = 2
+    # 立ち上がりのあと、何フレームぶんスコアを見てから決めるか（0 なら確認窓なし）
+    confirm_frames: int = 3
+    # 立ち上がりと確認窓を通した最大スコアがこの値未満なら反応しない。
+    # 0 なら見送りが起きない（反応が confirm_frames ぶん遅れるだけ。材料を集める段階の設定）
+    confirm_threshold: float = 0.0
+
+
+def load_wakeword_config(env: Mapping[str, str] = os.environ) -> WakeWordConfig:
+    return WakeWordConfig(
+        threshold=parse_number(env.get("WAKEWORD_THRESHOLD"), WakeWordConfig.threshold),
+        patience_frames=parse_number(env.get("WAKEWORD_PATIENCE_FRAMES"), WakeWordConfig.patience_frames),
+        confirm_frames=parse_number(env.get("WAKEWORD_CONFIRM_FRAMES"), WakeWordConfig.confirm_frames),
+        confirm_threshold=parse_number(env.get("WAKEWORD_CONFIRM_THRESHOLD"), WakeWordConfig.confirm_threshold),
+    )
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     api_key: str = field(default="", repr=False)  # 表示やログに API キーが出ないようにする
     model: str | None = None  # None なら既定のモデル

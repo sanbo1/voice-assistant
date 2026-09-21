@@ -3,6 +3,7 @@ from voice_assistant.assistant import (
     AI_ERROR_MESSAGE,
     DAILY_LIMIT_MESSAGE,
     RATE_LIMIT_MESSAGE,
+    Assistant,
     is_slow_playback,
     reply_or_error_message,
 )
@@ -91,3 +92,23 @@ def test_is_slow_playback():
     assert is_slow_playback(10.0, 11.0) is True     # 1.1 倍（2026-09-20 に実際に起きた遅さ）
     assert is_slow_playback(10.0, 10.5) is False    # 1.05 倍（再生開始の待ち時間の分）
     assert is_slow_playback(0.0, 5.0) is False      # 長さが 0 の音声は判定しない
+
+
+class StatusLog(FakeLog):
+    def status(self, text):
+        self.lines.append(("status", text))
+
+
+def make_assistant(log):
+    """会話ログだけを使う部分を試すための Assistant（音声の準備を避けるため __new__ で組み立てる）。"""
+    assistant = Assistant.__new__(Assistant)
+    assistant._log = log
+    assistant._wake_note = "最大 0.48、並び 0.10 0.48 0.46"
+    return assistant
+
+
+def test_empty_wake_is_recorded_with_the_scores():
+    """空振りの 1 行に、検知したときのスコアも入れる（あとから誤反応を数えるため）。"""
+    log = StatusLog()
+    make_assistant(log)._log_empty_wake("聞き取りが短い")
+    assert log.lines == [("status", "ウェイクワードは空振りでした（聞き取りが短い、最大 0.48、並び 0.10 0.48 0.46）")]

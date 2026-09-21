@@ -158,6 +158,14 @@ nano ~/voice-assistant/.env
   回復したら優先のモデルに戻る。切り替えは会話ログの「状態」に、予備のモデルでの返答は「返答（モデル名）」と書かれる。
 - `FOLLOWUP_SECONDS` / `FOLLOWUP_MAX_TURNS`：返答のあと、ウェイクワードなしで続けて話せる秒数と回数
   （空なら 3 秒・3 回）。`FOLLOWUP_SECONDS=0` にすると、続けて話す機能を使わない。
+- `WAKEWORD_*`：ウェイクワード検知の調整値（空なら既定）。変えたら
+  `systemctl --user restart voice-assistant` で反映する。配置し直さずに試せる。
+  - `WAKEWORD_THRESHOLD`（既定 0.35）：スコアがこの値以上のフレームを「立ち上がり」として数える。
+  - `WAKEWORD_PATIENCE_FRAMES`（既定 2）：何フレーム続けて超えたら確認窓に進むか。1 フレーム 80ms。
+  - `WAKEWORD_CONFIRM_FRAMES`（既定 3）：立ち上がりのあと、何フレームぶん見てから決めるか。
+    大きくすると誤反応を見分けやすくなるが、そのぶん反応が遅くなる（3 なら 240ms）。0 で確認窓なし。
+  - `WAKEWORD_CONFIRM_THRESHOLD`（既定 0）：立ち上がりと確認窓を通した最大スコアがこの値未満なら反応しない。
+    0 のあいだは見送りが起きず、反応が遅くなるだけ（誤反応と本物の差を記録でためる段階の設定）。
 - `AUDIO_INPUT_DEVICE` / `AUDIO_OUTPUT_DEVICE`：空なら既定のデバイス。機体ごとに変える場合に記入する。
 
 ## 7. モデルのダウンロード

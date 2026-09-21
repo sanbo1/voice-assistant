@@ -2,9 +2,11 @@ from voice_assistant.config import (
     AssistantConfig,
     AudioConfig,
     GeminiConfig,
+    WakeWordConfig,
     load_assistant_config,
     load_audio_config,
     load_gemini_config,
+    load_wakeword_config,
     parse_device,
 )
 
@@ -68,3 +70,23 @@ def test_load_assistant_config_ignores_invalid_values():
     config = load_assistant_config({"FOLLOWUP_SECONDS": "x", "FOLLOWUP_MAX_TURNS": " "})
     assert config == AssistantConfig()
     assert load_assistant_config({"FOLLOWUP_SECONDS": "0"}).followup_seconds == 0.0
+
+
+def test_load_wakeword_config_defaults():
+    assert load_wakeword_config({}) == WakeWordConfig(
+        threshold=0.35, patience_frames=2, confirm_frames=3, confirm_threshold=0.0)
+
+
+def test_load_wakeword_config_from_env():
+    config = load_wakeword_config({
+        "WAKEWORD_THRESHOLD": "0.4",
+        "WAKEWORD_PATIENCE_FRAMES": "3",
+        "WAKEWORD_CONFIRM_FRAMES": "0",
+        "WAKEWORD_CONFIRM_THRESHOLD": "0.6",
+    })
+    assert config == WakeWordConfig(threshold=0.4, patience_frames=3,
+                                    confirm_frames=0, confirm_threshold=0.6)
+
+
+def test_load_wakeword_config_ignores_invalid_values():
+    assert load_wakeword_config({"WAKEWORD_THRESHOLD": "x", "WAKEWORD_CONFIRM_FRAMES": " "}) == WakeWordConfig()

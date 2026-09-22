@@ -38,26 +38,37 @@ class RecognitionStream:
     """話しながら少しずつ音声を渡し、話し終わったら結果を受け取る（話し終わり後の待ち時間を短くするため）。
 
     Vosk は発話の途中の間で結果を区切ることがあるため、区切られた結果もすべて集めてつなげる。
+    単語ごとの確信度も集める（雑音を文字にしただけの結果を見分けるため。2026-09-22）。
     """
 
     def __init__(self, recognizer):
         self._recognizer = recognizer
         self._texts: list[str] = []
+        self._confidences: list[float] = []
+        self.confidence: float | None = None  # finish() のあとに入る、単語ごとの確信度の平均
+
+    def _take(self, payload: str) -> None:
+        result = json.loads(payload)
+        self._texts.append(result.get("text", ""))
+        self._confidences += [w["conf"] for w in result.get("result", []) if "conf" in w]
 
     def accept(self, frame: np.ndarray) -> None:
         if self._recognizer.AcceptWaveform(np.asarray(frame, dtype="<i2").tobytes()):
-            self._texts.append(json.loads(self._recognizer.Result()).get("text", ""))
+            self._take(self._recognizer.Result())
 
     def reset(self) -> None:
         """それまでに渡した音声を捨てる（短すぎる声として取り消されたとき）。"""
         self._recognizer.Reset()
         self._texts.clear()
+        self._confidences.clear()
 
     def finish(self) -> str:
-        """結果を返す。聞き取れなかった場合は空文字。"""
-        self._texts.append(json.loads(self._recognizer.FinalResult()).get("text", ""))
+        """結果を返す。聞き取れなかった場合は空文字。確信度の平均は self.confidence に入る。"""
+        self._take(self._recognizer.FinalResult())
         text = join_japanese_words(" ".join(self._texts))
+        self.confidence = sum(self._confidences) / len(self._confidences) if self._confidences else None
         self._texts.clear()
+        self._confidences.clear()
         return text
 
 
@@ -76,7 +87,9 @@ class VoskRecognizer:
 
     def start(self, sample_rate: int = SAMPLE_RATE) -> RecognitionStream:
         """話しながら認識するための RecognitionStream を作る。"""
-        return RecognitionStream(self._vosk.KaldiRecognizer(self._model, sample_rate))
+        recognizer = self._vosk.KaldiRecognizer(self._model, sample_rate)
+        recognizer.SetWords(True)  # 単語ごとの確信度を受け取る
+        return RecognitionStream(recognizer)
 
     def transcribe(self, samples: np.ndarray, sample_rate: int = SAMPLE_RATE) -> str:
         """発話全体（int16、モノラル）を文字にする。聞き取れなかった場合は空文字。"""

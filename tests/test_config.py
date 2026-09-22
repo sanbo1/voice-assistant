@@ -80,8 +80,14 @@ def test_load_stt_config_defaults():
 
 
 def test_load_stt_config_from_env():
-    config = load_stt_config({"VOSK_MODEL_DIR": "vosk-model-small-ja-0.22"})
+    config = load_stt_config({"VOSK_MODEL_DIR": "vosk-model-small-ja-0.22", "VOSK_MIN_CONFIDENCE": "0.4"})
     assert config.model_dir == "vosk-model-small-ja-0.22"
+    assert config.min_confidence == 0.4
+
+
+def test_load_stt_config_confidence_can_be_disabled():
+    """0 を指定すると足切りをしない。"""
+    assert load_stt_config({"VOSK_MIN_CONFIDENCE": "0"}).min_confidence == 0.0
 
 
 def test_load_stt_config_ignores_blank():

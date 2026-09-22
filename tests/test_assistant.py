@@ -99,11 +99,14 @@ class StatusLog(FakeLog):
         self.lines.append(("status", text))
 
 
-def make_assistant(log):
+def make_assistant(log, min_confidence=0.52):
     """会話ログだけを使う部分を試すための Assistant（音声の準備を避けるため __new__ で組み立てる）。"""
+    from voice_assistant.config import SttConfig
+
     assistant = Assistant.__new__(Assistant)
     assistant._log = log
     assistant._wake_note = "最大 0.48、並び 0.10 0.48 0.46"
+    assistant._stt_config = SttConfig(min_confidence=min_confidence)
     return assistant
 
 
@@ -112,3 +115,22 @@ def test_empty_wake_is_recorded_with_the_scores():
     log = StatusLog()
     make_assistant(log)._log_empty_wake("聞き取りが短い")
     assert log.lines == [("status", "ウェイクワードは空振りでした（聞き取りが短い、最大 0.48、並び 0.10 0.48 0.46）")]
+
+
+def test_low_confidence_is_treated_as_noise():
+    """しきい値を下回る聞き取りは雑音とみなす。"""
+    assert make_assistant(StatusLog())._is_noise(0.46) is True
+
+
+def test_confidence_at_the_threshold_is_kept():
+    assert make_assistant(StatusLog())._is_noise(0.52) is False
+    assert make_assistant(StatusLog())._is_noise(0.58) is False
+
+
+def test_missing_confidence_is_not_noise():
+    """確信度が取れなかった回は足切りしない（誤って捨てないため）。"""
+    assert make_assistant(StatusLog())._is_noise(None) is False
+
+
+def test_threshold_zero_disables_the_check():
+    assert make_assistant(StatusLog(), min_confidence=0.0)._is_noise(0.01) is False

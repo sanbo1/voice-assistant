@@ -83,10 +83,17 @@ class SttConfig:
     """
 
     model_dir: str = "vosk-model-ja-0.22"
+    # 単語ごとの確信度の平均がこれ未満なら、雑音を文字にしただけとみなして AI に送らない。
+    # 2026-09-22 の実測：雑音だけ（テレビ）0.465／離れた位置からの質問 0.576〜0.847。
+    # 隙間が狭いため余裕は小さい。取りこぼしが出たら下げる。0 にすると足切りをしない
+    min_confidence: float = 0.52
 
 
 def load_stt_config(env: Mapping[str, str] = os.environ) -> SttConfig:
-    return SttConfig(model_dir=(env.get("VOSK_MODEL_DIR") or "").strip() or SttConfig.model_dir)
+    return SttConfig(
+        model_dir=(env.get("VOSK_MODEL_DIR") or "").strip() or SttConfig.model_dir,
+        min_confidence=parse_number(env.get("VOSK_MIN_CONFIDENCE"), SttConfig.min_confidence),
+    )
 
 
 @dataclass(frozen=True)

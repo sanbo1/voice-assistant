@@ -24,22 +24,29 @@ def test_empty_and_extra_spaces():
 class FakeKaldi:
     """AcceptWaveform の戻り値（区切りが来たか）を順に返す偽物。"""
 
-    def __init__(self, endpoints, results, final):
+    def __init__(self, endpoints, results, final, confs=None, final_confs=None):
         self._endpoints = list(endpoints)
         self._results = list(results)
         self._final = final
+        self._confs = list(confs or [])
+        self._final_confs = list(final_confs or [])
         self.accepted = 0
         self.resets = 0
+
+    @staticmethod
+    def _payload(text, confs):
+        words = ", ".join('{"word": "x", "conf": %s}' % c for c in confs)
+        return '{"text": "%s", "result": [%s]}' % (text, words)
 
     def AcceptWaveform(self, data):
         self.accepted += 1
         return self._endpoints.pop(0) if self._endpoints else False
 
     def Result(self):
-        return '{"text": "%s"}' % self._results.pop(0)
+        return self._payload(self._results.pop(0), self._confs.pop(0) if self._confs else [])
 
     def FinalResult(self):
-        return '{"text": "%s"}' % self._final
+        return self._payload(self._final, self._final_confs)
 
     def Reset(self):
         self.resets += 1
@@ -78,3 +85,29 @@ def test_model_dir_from_config():
 
     assert model_dir_from_config(SttConfig()) == MODELS_DIR / "vosk-model-ja-0.22"
     assert model_dir_from_config(SttConfig(model_dir="x")) == MODELS_DIR / "x"
+
+
+def test_stream_averages_word_confidence():
+    """区切られた結果も含めて、単語ごとの確信度の平均を出す。"""
+    kaldi = FakeKaldi(endpoints=[True], results=["今日 の"], final="天気 は",
+                      confs=[[1.0, 0.8]], final_confs=[0.6, 0.6])
+    stream = RecognitionStream(kaldi)
+    stream.accept(frame())
+    assert stream.finish() == "今日の天気は"
+    assert stream.confidence == 0.75  # (1.0 + 0.8 + 0.6 + 0.6) / 4
+
+
+def test_stream_confidence_is_none_without_words():
+    """単語がなければ確信度は出せない（足切りの対象にしない）。"""
+    stream = RecognitionStream(FakeKaldi([], [], ""))
+    stream.finish()
+    assert stream.confidence is None
+
+
+def test_stream_reset_discards_confidence():
+    kaldi = FakeKaldi(endpoints=[True], results=["えー"], final="明日", confs=[[0.1]], final_confs=[0.9])
+    stream = RecognitionStream(kaldi)
+    stream.accept(frame())
+    stream.reset()
+    assert stream.finish() == "明日"
+    assert stream.confidence == 0.9

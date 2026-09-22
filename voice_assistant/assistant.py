@@ -94,6 +94,7 @@ class Assistant:
         self._detector = WakeWordDetector(config=wakeword_config)
         self._wake_note = ""  # 直前の検知のスコア（空振りだったときに記録へ残すため）
         self._vad = SileroVad()
+        self._stt_config = stt_config
         self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
         self._tts = OpenJTalk()
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
@@ -159,12 +160,18 @@ class Assistant:
         started = time.perf_counter()
         text = recognition.finish()
         recognized = time.perf_counter()
-        self._log.heard(text)
+        self._log.heard(text, recognition.confidence)
         if len(text) < MIN_QUESTION_CHARS:
             # 周りの音を拾っただけのことが多いため、AI には送らず、何も言わずに待ち受けへ戻る
             # （ウェイクワードの誤反応のたびに話すとうるさいため。2026-09-20）
             if after_wake:
                 self._log_empty_wake("聞き取りが短い")
+            return False
+        if self._is_noise(recognition.confidence):
+            # テレビの音などを文字にしただけの結果を AI に送らない（利用回数の枠を守るため。2026-09-22）
+            self._log.status("雑音とみなして AI に送りませんでした")
+            if after_wake:
+                self._log_empty_wake("雑音とみなした")
             return False
 
         answer = reply_or_error_message(self._ai, self._history, text, self._log)
@@ -220,6 +227,21 @@ class Assistant:
             recognition,
         )
         return utterance, recognition
+
+    def _is_noise(self, confidence: float | None) -> bool:
+        """聞き取りの確信度が低すぎるか（雑音を文字にしただけとみなすか）。
+
+        2026-09-22 の実測では、雑音だけ（テレビ）が 0.465、離れた位置からの質問が 0.576〜0.847 だった。
+        確信度では「雑音」と「誤って認識された質問」は区別できない（0.79 で全く違う言葉のこともある）。
+        あくまで、雑音を AI に送って利用回数の枠を使い切るのを防ぐための足切り。
+        """
+        threshold = self._stt_config.min_confidence
+        if threshold <= 0 or confidence is None:
+            return False
+        if confidence >= threshold:
+            return False
+        logger.info("確信度が低いため AI に送りません（%.2f < %.2f）", confidence, threshold)
+        return True
 
     def _log_empty_wake(self, reason: str) -> None:
         """ウェイクワードで始まった回が質問にならなかったことを、検知時のスコアと一緒に記録する。

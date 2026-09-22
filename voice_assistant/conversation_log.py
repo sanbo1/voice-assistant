@@ -38,8 +38,10 @@ class ConversationLog:
     def status(self, text: str) -> None:
         self._write("状態", text)
 
-    def heard(self, text: str) -> None:
-        self._write("聞き取り", text or "（聞き取れませんでした）")
+    def heard(self, text: str, confidence: float | None = None) -> None:
+        """confidence を渡すと「聞き取り（確信度 0.92）」と書く（しきい値の調整に使う）。"""
+        label = "聞き取り" if confidence is None else f"聞き取り（確信度 {confidence:.2f}）"
+        self._write(label, text or "（聞き取れませんでした）")
 
     def reply(self, text: str, model: str | None = None) -> None:
         """model を渡すと「返答（モデル名）」と書く（予備のモデルで答えたとき用）。"""

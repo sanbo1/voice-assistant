@@ -27,6 +27,8 @@ from .wakeword import FRAME_SAMPLES, WakeWordDetector
 logger = logging.getLogger(__name__)
 
 STARTUP_MESSAGE = "音声アシスタントを起動しました。"
+# ウェイクワードを待ち受ける状態になったことを会話ログに残す文言（画面で「止まっている」と見えないように）
+WAITING_MESSAGE = "ウェイクワードを待っています（「hey jarvis」と話しかけてください）"
 RATE_LIMIT_MESSAGE = "利用回数の上限に達しました。少し時間をおいてから話しかけてください。"
 DAILY_LIMIT_MESSAGE = "今日の利用回数の上限に達しました。しばらくしてから、もう一度お試しください。"
 AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでした。少し待ってから、もう一度お試しください。"
@@ -119,6 +121,9 @@ class Assistant:
             try:
                 # 待ち受けに戻ったことを知らせる（鳴らし終わってからマイクを開く）
                 audio.play(self._ready_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
+                # 画面の会話ログだけを見ていると、待ち受けに戻ったことが分からず止まって見えるため残す
+                # （短い聞き取りのあとは何も言わずに戻るので、直前の行が「聞き取り：…」のままになる。2026-09-22）
+                self._log.status(WAITING_MESSAGE)
                 self.handle_one_turn()
             except Exception as e:
                 logger.exception("想定外のエラー")
@@ -129,10 +134,11 @@ class Assistant:
         """ウェイクワードを待って質問に答え、そのあとは決めた回数まで続けて話せるようにする。"""
         if not self._answer_once(self._wake_and_listen, after_wake=True):
             return
-        for remaining in range(self._config.followup_max_turns - 1, -1, -1):
+        # 質問にならなかった回があれば、その時点で待ち受けに戻る（雑音を拾い続けないため）
+        for _ in range(self._config.followup_max_turns):
             if self._config.followup_seconds <= 0:
                 return
-            if not self._answer_once(lambda: self._listen_again(remaining)):
+            if not self._answer_once(self._listen_again):
                 return
 
     def _answer_once(self, listen: Callable[[], tuple[Utterance, RecognitionStream]],
@@ -187,13 +193,15 @@ class Assistant:
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる
 
-    def _listen_again(self, remaining: int) -> tuple[Utterance, RecognitionStream]:
+    def _listen_again(self) -> tuple[Utterance, RecognitionStream]:
         """返答のあと、ウェイクワードなしで続けて話せる状態にする。"""
         # スピーカーから出た読み上げの終わりを拾わないよう、少し待ってからマイクを開く
         time.sleep(FOLLOWUP_DELAY_SECONDS)
         audio.play(self._listen_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
         seconds = self._config.followup_seconds
-        self._log.status(f"続けて話せます（{seconds:g} 秒以内。このあと {remaining} 回まで）")
+        # 残り回数は出さない。短い聞き取りが 1 回あればそこで終わるため、
+        # 「このあと N 回まで」は実際の挙動と食い違っていた（2026-09-22）
+        self._log.status(f"続けて話せます（{seconds:g} 秒以内）")
         config = dataclasses.replace(self._endpoint_config, start_timeout_seconds=seconds)
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:

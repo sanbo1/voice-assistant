@@ -41,12 +41,20 @@ class StateFile:
     def path(self) -> Path | None:
         return self._path
 
-    def write(self, state: str, history_seconds_left: float = 0.0) -> None:
-        """いまの様子を書く。history_seconds_left は会話履歴が消えるまでの秒数。"""
+    def write(self, state: str, history_seconds_left: float = 0.0,
+              model: str | None = None, fallback: bool = False) -> None:
+        """いまの様子を書く。
+
+        history_seconds_left は会話履歴が消えるまでの秒数。
+        model は使用中の AI のモデル名、fallback は予備のモデルに切り替わっているか（画面に出すため）。
+        """
         if self._path is None:
             return
         now = self._clock()
         payload = {"state": state, "updated": now.isoformat(timespec="seconds"), "pid": os.getpid()}
+        if model:
+            payload["model"] = model
+            payload["fallback"] = fallback
         if history_seconds_left > 0:
             payload["history_alive_until"] = (
                 now + timedelta(seconds=history_seconds_left)).isoformat(timespec="seconds")

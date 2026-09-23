@@ -8,8 +8,10 @@
     python3 tools/display.py
 
 キー操作：
+    スペース（押しっぱなし）… 押している間だけ聞き取る（うるさいときに近くで話すため）
     c … 見切れ調整モードの入り切り（テレビ側のオーバースキャンで端が切れる場合に使う）
-    q … 終了
+        調整中：Tab で辺を選ぶ／矢印で動かす／Enter で保存／Esc で取り消し
+    q … 終了（デスクトップのアイコンから開き直せる）
 """
 
 import json
@@ -39,6 +41,8 @@ LOG_PATH = PROJECT_ROOT / "logs" / "conversation.log"
 # 見切れの調整値などの保存先。tools/deploy.sh の対象外なので、配置し直しても消えない
 SETTINGS_PATH = PROJECT_ROOT / "display-settings.json"
 REFRESH_MS = 500
+# 画面に出す過去のやり取りの数（多いと返答の行と重なる）
+PAST_ON_SCREEN = 3
 # ボタンの合図を送る間隔と、キーの自動リピートを見分けるための待ち時間
 TALK_TOUCH_MS = 200
 KEY_REPEAT_MS = 60
@@ -53,13 +57,15 @@ TEXT = "#e8eaed"
 DIM = "#8b9299"
 # まだ使えない案内に使う色（取り消し線とあわせて「準備中」と分かるようにする）
 NOT_READY = "#5b6166"
+# 聞き取りの質を質問の文字色で示す（○＝白、△＝黄、×＝赤）。記号や説明文は出さない
+HEARD_COLORS = {"○": "#e8eaed", "△": "#f2c14e", "×": "#ff6b6b", "": "#e8eaed"}
 STATE_COLORS = {"starting": "#9aa0a6", "waiting": "#57d977", "listening": "#5aa9ff",
                 "thinking": "#f2c14e", "speaking": "#5aa9ff", "followup": "#57d977",
                 "error": "#ff6b6b", "unknown": "#9aa0a6"}
 FONT_CANDIDATES = ("Noto Sans CJK JP", "Noto Sans JP", "IPAexGothic", "IPAGothic",
                    "VL Gothic", "DejaVu Sans")
 # 余白を除いた高さに対する文字の大きさ
-SIZES = {"state": 0.075, "state_sub": 0.034, "heard": 0.047, "reply": 0.040,
+SIZES = {"state": 0.075, "state_sub": 0.025, "heard": 0.034, "reply": 0.040,
          "past": 0.026, "stats": 0.024}
 
 EDGES = ("top", "bottom", "left", "right")
@@ -121,19 +127,24 @@ class Display:
             "state_sub": self._label("state_sub", DIM),
             "state_note": self._label("state_sub", DIM),
             "heard": self._label("heard", TEXT),
-            "mark": self._label("state_sub", DIM),
             "reply": self._label("reply", TEXT),
             "past": self._label("past", DIM),
-            "stats": self._label("stats", DIM),
             "guide": self._label("state_sub", "#ff6b6b"),
         }
-        for key in ("state", "state_sub", "state_note", "heard", "mark", "reply", "past", "stats"):
+        # 最下部は「統計（左）」と「キーの案内（右）」に分ける
+        self.bottom = tk.Frame(self.safe, bg=BACKGROUND)
+        self.labels["stats"] = self._label("stats", DIM, parent=self.bottom)
+        self.labels["keys"] = self._label("stats", NOT_READY, parent=self.bottom)
+        self.labels["keys"].configure(text="q：終了")
+        for key in ("state", "state_sub", "state_note", "heard", "reply", "past", "stats"):
             self.labels[key].configure(justify="left", anchor="nw")
         # 位置を固定すると、下の行の背景が上の行の文字を隠してしまう（2026-09-23 に実機で判明）。
         # pack で上から順に積み、高さは文字に合わせて自動で決めさせる
-        self.labels["stats"].pack(side="bottom", anchor="w", fill="x")
+        self.bottom.pack(side="bottom", fill="x")
+        self.labels["keys"].pack(in_=self.bottom, side="right", anchor="e")
+        self.labels["stats"].pack(in_=self.bottom, side="left", anchor="w")
         self.labels["past"].pack(side="bottom", anchor="w", fill="x")
-        for key in ("state", "state_sub", "state_note", "heard", "mark", "reply"):
+        for key in ("state", "state_sub", "state_note", "heard", "reply"):
             self.labels[key].pack(anchor="w", fill="x")
 
         root.bind("<Key>", self.on_key)
@@ -142,8 +153,8 @@ class Display:
         self.layout()
         self.refresh()
 
-    def _label(self, size_key: str, color: str, style: str = "") -> tk.Label:
-        label = tk.Label(self.safe, bg=BACKGROUND, fg=color, text="")
+    def _label(self, size_key: str, color: str, style: str = "", parent=None) -> tk.Label:
+        label = tk.Label(parent if parent is not None else self.safe, bg=BACKGROUND, fg=color, text="")
         label.size_key = size_key  # layout() で大きさを決め直すため覚えておく
         label.style = style  # "overstrike"（取り消し線）など
         return label
@@ -165,7 +176,8 @@ class Display:
             size = max(8, int(safe_h * SIZES[label.size_key] * scale))
             # 行間を少し空ける（文字の上下が詰まって見切れて見えないように）
             font = (self.family, size, label.style) if label.style else (self.family, size)
-            label.configure(font=font, wraplength=safe_w, pady=max(2, int(size * 0.12)))
+            wrap = 0 if label is self.labels.get("keys") else safe_w
+            label.configure(font=font, wraplength=wrap, pady=max(2, int(size * 0.12)))
 
     # ---------- 表示の更新 ----------
 
@@ -198,36 +210,38 @@ class Display:
         latest = latest_exchange(entries)
         if latest is None:
             self.labels["heard"].configure(text="")
-            self.labels["mark"].configure(text="")
             self.labels["reply"].configure(text="まだ会話がありません")
         else:
             heard, reply = latest
-            mark, note = confidence_mark(heard.confidence)
-            self.labels["heard"].configure(text=f"あなた： {shorten(heard.body, 60)}")
-            self.labels["mark"].configure(text=f"{mark} {note}".strip())
+            mark, _ = confidence_mark(heard.confidence)
+            self.labels["heard"].configure(text=f"質問　： {shorten(heard.body, 40)}",
+                                           fg=HEARD_COLORS[mark])
             self.labels["reply"].configure(
                 # 送らなかった理由は短すぎた場合と確信度が低い場合があるため、まとめた言い方にする
-                text=f"返答　： {shorten(reply.body, 160)}" if reply else "（うまく聞き取れず、AI には送っていません）")
+                text=f"返答　： {shorten(reply.body, 200)}" if reply else "（うまく聞き取れず、AI には送っていません）")
 
-        past = past_exchanges(entries)
+        past = past_exchanges(entries, limit=PAST_ON_SCREEN)
         # 会話履歴が生きている間は明るく出す（「前の話の続き」を言えると分かるように）
         self.labels["past"].configure(
             fg=DIM if history_alive(reported) else NOT_READY,
-            text="\n".join(f"・{shorten(h.body, 22)} → {shorten(r.body, 26)}　{r.clock}" for h, r in past))
+            text="\n".join(f"・{shorten(h.body, 14)} → {shorten(r.body, 18)}　{r.clock}" for h, r in past))
 
         got = statistics(entries)
-        parts = [f"今日の利用 およそ {got.ai_calls} 回", f"誤反応 {got.false_wakes}",
+        # 使用中のモデルは本体が状態ファイルに書く（画面は .env を読まない＝API キーに触れない）
+        model = (reported or {}).get("model")
+        used = f"（{'予備 ' if (reported or {}).get('fallback') else ''}{model}）" if model else ""
+        parts = [f"今日の利用 およそ {got.ai_calls} 回{used}", f"誤反応 {got.false_wakes}",
                  f"見送り {got.suppressed}", f"遅い応答 {got.slow_responses}"]
         if got.errors:
             parts.append(f"エラー {got.errors}")
-        if got.fallback_model:
-            parts.append(f"予備のモデル使用中（{got.fallback_model}）")
         self.labels["stats"].configure(text="　".join(parts))
 
     # ---------- ボタン（スペースキー）----------
 
     def on_talk_press(self, event: tk.Event) -> str:
         """押している間だけ聞き取ってもらう。合図を短い間隔で送り続ける。"""
+        if self.calibrating:
+            return "break"  # 調整中は聞き取りを始めない
         if self.release_job is not None:  # 自動リピートによる「離した」を取り消す
             self.root.after_cancel(self.release_job)
             self.release_job = None

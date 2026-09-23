@@ -69,6 +69,9 @@ AI の設定（`GEMINI_*`）を変えると Gemini への接続を作り直す�
 ssh raspi-voice "systemctl --user restart voice-display"   # 画面の再起動
 ```
 
+画面のキー操作（スペースで聞き取り、`c` で見切れ調整、`q` で終了）は
+`docs/display-spec.md` の「キー操作」を参照。
+
 ## 3. 読み替え表（誤読の修正）
 
 **場所**：`config/readings.tsv`（1 行に「言葉＜タブ＞読み」、`#` 以降はコメント）

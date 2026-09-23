@@ -303,7 +303,10 @@ class Assistant:
 
     def _note_state(self, state: str) -> None:
         """いまの様子を画面に渡す（docs/display-spec.md の段階 2）。"""
-        self._state.write(state, self._history.seconds_left())
+        primary = getattr(self._ai, "primary", None)
+        model = getattr(self._ai, "last_model", None) or primary or getattr(self._ai, "model", None)
+        self._state.write(state, self._history.seconds_left(),
+                          model=model, fallback=bool(model and primary and model != primary))
 
     def _is_noise(self, confidence: float | None) -> bool:
         """聞き取りの確信度が低すぎるか（雑音を文字にしただけとみなすか）。

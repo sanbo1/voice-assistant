@@ -58,6 +58,15 @@ class TriggerGate:
         self._confirming = 0
         self._remaining = 0
 
+    def configure(self, threshold: float, patience_frames: int,
+                  confirm_frames: int, confirm_threshold: float) -> None:
+        """判定の値を入れ替える（動作中に .env の変更を反映するため）。途中の状態は捨てる。"""
+        self.threshold = threshold
+        self.patience_frames = max(1, patience_frames)
+        self.confirm_frames = max(0, confirm_frames)
+        self.confirm_threshold = confirm_threshold
+        self.reset()
+
     def reset(self) -> None:
         """それまでのスコアによる状態を消す（設定は残す）。"""
         self._above = 0
@@ -137,6 +146,11 @@ class WakeWordDetector:
         self.last_suppressed = 0  # その反応までに、確認窓で見送った回数
         self.last_scores: list[float] = []  # 検知したときの、直前のスコアの並び
         self._recent: deque[float] = deque(maxlen=SCORE_HISTORY_FRAMES)
+
+    def apply(self, config: WakeWordConfig) -> None:
+        """検知の設定を入れ替える（モデルは読み直さない）。"""
+        self._gate.configure(config.threshold, config.patience_frames,
+                             config.confirm_frames, config.confirm_threshold)
 
     def reset(self) -> None:
         """それまでの音声による状態を消す（マイクを開き直したときに呼ぶ）。"""

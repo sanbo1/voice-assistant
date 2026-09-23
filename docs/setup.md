@@ -147,6 +147,9 @@ ssh raspi-voice 'sudo systemctl reboot'
 
 ## 6. .env の記入（Pi 上。値はユーザーが自分で記入する）
 
+設定できる項目の一覧と、変更がいつ反映されるかは `docs/settings.md` にまとめてある。
+**2026-09-23 以降、`.env` の変更は待ち受け中に数秒で自動反映される**（音声認識のモデルを除く）。
+
 ```bash
 nano ~/voice-assistant/.env
 ```

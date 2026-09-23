@@ -14,10 +14,11 @@ import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
-from .config import AssistantConfig, AudioConfig, SttConfig, WakeWordConfig
+from .config import AssistantConfig, AudioConfig, GeminiConfig, SttConfig, WakeWordConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
+from .settings import SettingsWatcher, changes, needs_restart
 from .sounds import listen_chime, ready_chime, wake_chime
 from .state import (
     FOLLOWUP,
@@ -57,6 +58,8 @@ SLOW_RESPONSE_SECONDS = 5.0
 FOLLOWUP_DELAY_SECONDS = 0.5
 # 聞き取った文字がこれより短いときは AI に送らない（周りの音による短い誤認識を送らないため）
 MIN_QUESTION_CHARS = 2
+# 待ち受け中に設定の変更を見る間隔（フレーム数。1 フレーム 80ms なので約 1 秒ごと）
+SETTINGS_CHECK_FRAMES = 12
 
 
 def is_slow_playback(expected_seconds: float, elapsed_seconds: float) -> bool:
@@ -94,6 +97,8 @@ class Assistant:
         stt_config: SttConfig = SttConfig(),
         history: ConversationHistory | None = None,
         endpoint_config: EndpointConfig = EndpointConfig(),
+        watcher: SettingsWatcher | None = None,
+        ai_factory: Callable[[GeminiConfig], ChatClient] | None = None,
     ):
         self._ai = ai
         self._audio = audio_config
@@ -110,6 +115,9 @@ class Assistant:
         self._state = StateFile()
         # ボタン（いまは画面のスペースキー）を押している間だけ聞き取るための合図
         self._talk = TalkSignal()
+        # .env の変更を待ち受け中に反映する（再起動せずに調整できるように）
+        self._watcher = watcher
+        self._ai_factory = ai_factory
         self._tts = OpenJTalk()
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
         self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)
@@ -203,7 +211,12 @@ class Assistant:
         try:
             self._detector.reset()
             by_key = False
+            waited = 0
             for frame in stream:
+                # 待ち受け中だけ設定の変更を見る（約 1 秒ごと。会話の途中では変えない）
+                waited += 1
+                if waited % SETTINGS_CHECK_FRAMES == 0:
+                    self._apply_new_settings()
                 if self._talk.pressed():
                     by_key = True
                     break
@@ -264,6 +277,29 @@ class Assistant:
             recognition,
         )
         return utterance, recognition
+
+    def _apply_new_settings(self) -> None:
+        """`.env` が変わっていれば、動作中の設定を入れ替える（待ち受け中だけ呼ぶ）。"""
+        if self._watcher is None:
+            return
+        before = self._watcher.settings
+        new = self._watcher.reload_if_changed()
+        if new is None:
+            return
+        self._config = new.assistant
+        self._stt_config = new.stt
+        self._audio = new.audio
+        self._detector.apply(new.wakeword)
+        if self._ai_factory is not None and new.gemini != before.gemini:
+            try:
+                self._ai = self._ai_factory(new.gemini)
+            except AiError as e:
+                self._log.error(f"AI の設定を変えられませんでした（{e}）")
+        for line in changes(before, new):
+            logger.info("設定の変更：%s", line)
+            self._log.status(f"設定を読み直しました：{line}")
+        for label in needs_restart(before, new):
+            self._log.status(f"{label}の変更は、再起動してから反映されます")
 
     def _note_state(self, state: str) -> None:
         """いまの様子を画面に渡す（docs/display-spec.md の段階 2）。"""

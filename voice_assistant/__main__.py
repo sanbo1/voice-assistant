@@ -1,20 +1,15 @@
 """音声アシスタントを起動する（Pi 上の ~/voice-assistant で `venv/bin/python -m voice_assistant`）。Ctrl+C で終了。"""
 
 import logging
+import os
 import sys
 
 from .ai import AiError
 from .ai.gemini import chat_client_from_config
 from .assistant import Assistant
-from .config import (
-    load_assistant_config,
-    load_audio_config,
-    load_env_file,
-    load_gemini_config,
-    load_stt_config,
-    load_wakeword_config,
-)
+from .config import load_env_file
 from .conversation_log import ConversationLog
+from .settings import SettingsWatcher, load_settings
 
 
 def main() -> int:
@@ -24,11 +19,14 @@ def main() -> int:
     log = ConversationLog(echo=sys.stdout.isatty())
     try:
         # 優先のモデルと予備のモデルを順に使う。切り替えたときは会話ログの「状態」に書く
-        ai = chat_client_from_config(load_gemini_config(), on_status=log.status)
-        Assistant(ai, audio_config=load_audio_config(), log=log,
-                  assistant_config=load_assistant_config(),
-                  wakeword_config=load_wakeword_config(),
-                  stt_config=load_stt_config()).run()
+        settings = load_settings(os.environ)
+        ai = chat_client_from_config(settings.gemini, on_status=log.status)
+        Assistant(ai, audio_config=settings.audio, log=log,
+                  assistant_config=settings.assistant,
+                  wakeword_config=settings.wakeword,
+                  stt_config=settings.stt,
+                  watcher=SettingsWatcher(settings),
+                  ai_factory=lambda config: chat_client_from_config(config, on_status=log.status)).run()
     except AiError as e:
         log.error(str(e))
         return 1

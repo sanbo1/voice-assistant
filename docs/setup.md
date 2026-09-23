@@ -100,7 +100,9 @@ ssh raspi-voice 'bash ~/voice-assistant/tools/setup_pi.sh'
      `systemctl --user restart wireplumber` を実行する（下の「HDMI の音声出力の休止」を参照）
   6. 自動起動のサービスと、HDMI の音声出力を見張るタイマー（`tools/pi-config/systemd/`）を `~/.config/systemd/user/` に置き、
      有効にする（10 を参照）
-  7. 会話ログのアイコンを `~/.config/autostart/` に置く（デスクトップにログインしたとき自動で開く）
+  7. デスクトップにアイコンを 2 つ（音声アシスタントの画面・会話ログ）置き、
+     **画面のほうだけを `~/.config/autostart/` に置く**（ログインしたとき自動で開く）。
+     会話ログの端末はアイコンから手動で開く（2026-09-23 に自動起動を画面へ変更）
   8. `.env` がなければ `.env.example` をコピーし、`chmod 600` にする
 
 | apt パッケージ | 用途 | ライセンス |

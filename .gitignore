@@ -40,6 +40,9 @@ logs/
 docs/ui.xlsx
 docs/~$ui.xlsx
 
+# 画面の見切れ調整など、機体ごとの設定（tools/display.py が書く）
+display-settings.json
+
 # OS・エディタ
 .DS_Store
 Thumbs.db

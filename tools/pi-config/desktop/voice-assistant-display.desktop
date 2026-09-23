@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=音声アシスタントの画面
+Comment=状態・直近のやり取り・統計を大きく表示する（~/voice-assistant/tools/display.py）
+Exec=bash -c "exec python3 \$HOME/voice-assistant/tools/display.py"
+Icon=utilities-system-monitor
+Terminal=false

@@ -108,15 +108,35 @@ if ! systemctl --user is-enabled --quiet voice-assistant-hdmi-watch.timer; then
     echo "HDMI の音声出力を見張るタイマーを有効にしました"
 fi
 
-echo "== 会話ログの自動起動（デスクトップ）"
-desktop_src="tools/pi-config/desktop/voice-assistant-log.desktop"
+echo "== デスクトップのアイコンと自動起動"
+# 自動起動するのは画面のほうだけ（2026-09-23）。会話ログの端末は、アイコンから手動で開けるようにしておく
 autostart_dir="$HOME/.config/autostart"
-if cmp -s "$desktop_src" "$autostart_dir/$(basename "$desktop_src")"; then
-    echo "設定済み"
+desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
+mkdir -p "$autostart_dir" "$desktop_dir"
+
+# 以前は会話ログの端末を自動起動していた。残っていれば消す
+if [ -e "$autostart_dir/voice-assistant-log.desktop" ]; then
+    rm -f "$autostart_dir/voice-assistant-log.desktop"
+    echo "会話ログの端末の自動起動をやめました（アイコンからは開けます）"
+fi
+
+for name in voice-assistant-display voice-assistant-log; do
+    src="tools/pi-config/desktop/$name.desktop"
+    if cmp -s "$src" "$desktop_dir/$name.desktop"; then
+        echo "アイコンは設定済み：$name"
+    else
+        cp "$src" "$desktop_dir/"
+        chmod +x "$desktop_dir/$name.desktop"
+        echo "アイコンを置きました：$desktop_dir/$name.desktop"
+    fi
+done
+
+display_src="tools/pi-config/desktop/voice-assistant-display.desktop"
+if cmp -s "$display_src" "$autostart_dir/$(basename "$display_src")"; then
+    echo "画面の自動起動は設定済み"
 else
-    mkdir -p "$autostart_dir"
-    cp "$desktop_src" "$autostart_dir/"
-    echo "配置しました：$autostart_dir/$(basename "$desktop_src")（次にデスクトップにログインしたときから開く）"
+    cp "$display_src" "$autostart_dir/"
+    echo "配置しました：$autostart_dir/$(basename "$display_src")（次にデスクトップにログインしたときから開く）"
 fi
 
 echo "== .env"

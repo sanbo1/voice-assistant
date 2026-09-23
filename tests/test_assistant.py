@@ -1,8 +1,11 @@
 from voice_assistant.ai import AiError
 from voice_assistant.assistant import (
     AI_ERROR_MESSAGE,
+    BUSY_MESSAGE,
     DAILY_LIMIT_MESSAGE,
+    NETWORK_MESSAGE,
     RATE_LIMIT_MESSAGE,
+    TIMEOUT_MESSAGE,
     Assistant,
     is_slow_playback,
     reply_or_error_message,
@@ -134,3 +137,39 @@ def test_missing_confidence_is_not_noise():
 
 def test_threshold_zero_disables_the_check():
     assert make_assistant(StatusLog(), min_confidence=0.0)._is_noise(0.01) is False
+
+
+# ---------- 失敗の種類ごとの文言（2026-09-23 追加）----------
+
+
+def answer_for(error):
+    return reply_or_error_message(FakeAi(error), ConversationHistory(), "質問", FakeLog())
+
+
+def test_busy_message_for_server_errors():
+    """Gemini が混み合っている（5xx）ときは、そうと分かる文言にする。"""
+    assert answer_for(AiError("HTTP 503", status=503)) == BUSY_MESSAGE
+    assert answer_for(AiError("HTTP 500", status=500)) == BUSY_MESSAGE
+
+
+def test_timeout_message():
+    """時間切れと接続失敗は status がどちらも None なので、種類で見分ける。"""
+    from voice_assistant.ai.base import TIMEOUT
+
+    assert answer_for(AiError("時間内に返答がありませんでした", kind=TIMEOUT)) == TIMEOUT_MESSAGE
+
+
+def test_network_message():
+    from voice_assistant.ai.base import NETWORK
+
+    assert answer_for(AiError("接続できません", kind=NETWORK)) == NETWORK_MESSAGE
+
+
+def test_other_errors_keep_the_general_message():
+    assert answer_for(AiError("読み取れません")) == AI_ERROR_MESSAGE
+    assert answer_for(AiError("HTTP 400", status=400)) == AI_ERROR_MESSAGE
+
+
+def test_quota_messages_are_unchanged():
+    assert answer_for(AiError("上限", status=429, quota="day")) == DAILY_LIMIT_MESSAGE
+    assert answer_for(AiError("上限", status=429)) == RATE_LIMIT_MESSAGE

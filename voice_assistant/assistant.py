@@ -14,6 +14,7 @@ import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
+from .ai.base import BUSY, NETWORK, TIMEOUT
 from .config import AssistantConfig, AudioConfig, GeminiConfig, SttConfig, WakeWordConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
@@ -43,6 +44,11 @@ WAITING_MESSAGE = "ウェイクワードを待っています（「hey jarvis」
 RATE_LIMIT_MESSAGE = "利用回数の上限に達しました。少し時間をおいてから話しかけてください。"
 DAILY_LIMIT_MESSAGE = "今日の利用回数の上限に達しました。しばらくしてから、もう一度お試しください。"
 AI_ERROR_MESSAGE = "すみません、今は答えを用意できませんでした。少し待ってから、もう一度お試しください。"
+# 失敗の種類ごとの文言。読み上げられるので短くする（2026-09-23 に追加）
+BUSY_MESSAGE = "AI が混み合っているようです。少し時間をおいてから、もう一度話しかけてください。"
+TIMEOUT_MESSAGE = "AI からの返事が間に合いませんでした。少し時間をおいてから、もう一度話しかけてください。"
+NETWORK_MESSAGE = "インターネットにつながらないようです。接続を確かめてください。"
+ERROR_MESSAGES = {BUSY: BUSY_MESSAGE, TIMEOUT: TIMEOUT_MESSAGE, NETWORK: NETWORK_MESSAGE}
 # 想定外のエラーのあと、次に試すまで待つ秒数（マイクが外れたときなどに空回りしないため）
 ERROR_BACKOFF_SECONDS = 5.0
 # 起動直後に出力を目覚めさせてから待つ秒数（HDMI は休止から戻る間の音が失われるため）
@@ -78,7 +84,7 @@ def reply_or_error_message(ai: ChatClient, history: ConversationHistory, text: s
         log.error(str(e))
         if e.status == 429:
             return DAILY_LIMIT_MESSAGE if e.quota == "day" else RATE_LIMIT_MESSAGE
-        return AI_ERROR_MESSAGE
+        return ERROR_MESSAGES.get(e.kind, AI_ERROR_MESSAGE)
     history.add(text, answer)
     model = getattr(ai, "last_model", None)
     log.reply(answer, model if model and model != getattr(ai, "primary", model) else None)

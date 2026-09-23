@@ -9,7 +9,7 @@ from datetime import datetime
 import requests
 
 from ..config import GeminiConfig
-from .base import AiError, Message
+from .base import NETWORK, TIMEOUT, AiError, Message
 from .fallback import FallbackChatClient
 from .prompt import system_instruction
 
@@ -139,9 +139,9 @@ class GeminiClient:
                 timeout=self._timeout,
             )
         except requests.Timeout:
-            raise AiError("時間内に返答がありませんでした") from None
+            raise AiError("時間内に返答がありませんでした", kind=TIMEOUT) from None
         except requests.RequestException as e:
-            raise AiError(f"Gemini に接続できませんでした（{type(e).__name__}）") from None
+            raise AiError(f"Gemini に接続できませんでした（{type(e).__name__}）", kind=NETWORK) from None
 
         if response.status_code == 429:
             try:

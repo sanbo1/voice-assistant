@@ -44,6 +44,8 @@ DEFAULT_SETTINGS = {"margin_top": 0.04, "margin_bottom": 0.04, "margin_left": 0.
 BACKGROUND = "#101418"
 TEXT = "#e8eaed"
 DIM = "#8b9299"
+# まだ使えない案内に使う色（取り消し線とあわせて「準備中」と分かるようにする）
+NOT_READY = "#5b6166"
 STATE_COLORS = {"starting": "#9aa0a6", "waiting": "#57d977", "listening": "#5aa9ff",
                 "thinking": "#f2c14e", "speaking": "#5aa9ff", "followup": "#57d977",
                 "error": "#ff6b6b", "unknown": "#9aa0a6"}
@@ -108,6 +110,8 @@ class Display:
         self.labels = {
             "state": self._label("state", TEXT),
             "state_sub": self._label("state_sub", DIM),
+            # 段階 3（キーで聞き取りを始める）はまだ作っていないため、取り消し線を引いて出す
+            "state_note": self._label("state_sub", NOT_READY, style="overstrike"),
             "heard": self._label("heard", TEXT),
             "mark": self._label("state_sub", DIM),
             "reply": self._label("reply", TEXT),
@@ -115,22 +119,23 @@ class Display:
             "stats": self._label("stats", DIM),
             "guide": self._label("state_sub", "#ff6b6b"),
         }
-        for key in ("state", "state_sub", "heard", "mark", "reply", "past", "stats"):
+        for key in ("state", "state_sub", "state_note", "heard", "mark", "reply", "past", "stats"):
             self.labels[key].configure(justify="left", anchor="nw")
         # 位置を固定すると、下の行の背景が上の行の文字を隠してしまう（2026-09-23 に実機で判明）。
         # pack で上から順に積み、高さは文字に合わせて自動で決めさせる
         self.labels["stats"].pack(side="bottom", anchor="w", fill="x")
         self.labels["past"].pack(side="bottom", anchor="w", fill="x")
-        for key in ("state", "state_sub", "heard", "mark", "reply"):
+        for key in ("state", "state_sub", "state_note", "heard", "mark", "reply"):
             self.labels[key].pack(anchor="w", fill="x")
 
         root.bind("<Key>", self.on_key)
         self.layout()
         self.refresh()
 
-    def _label(self, size_key: str, color: str) -> tk.Label:
+    def _label(self, size_key: str, color: str, style: str = "") -> tk.Label:
         label = tk.Label(self.safe, bg=BACKGROUND, fg=color, text="")
         label.size_key = size_key  # layout() で大きさを決め直すため覚えておく
+        label.style = style  # "overstrike"（取り消し線）など
         return label
 
     # ---------- 配置 ----------
@@ -149,8 +154,8 @@ class Display:
         for label in self.labels.values():
             size = max(8, int(safe_h * SIZES[label.size_key] * scale))
             # 行間を少し空ける（文字の上下が詰まって見切れて見えないように）
-            label.configure(font=(self.family, size), wraplength=safe_w,
-                            pady=max(2, int(size * 0.12)))
+            font = (self.family, size, label.style) if label.style else (self.family, size)
+            label.configure(font=font, wraplength=safe_w, pady=max(2, int(size * 0.12)))
 
     # ---------- 表示の更新 ----------
 
@@ -168,10 +173,12 @@ class Display:
         entries = read_entries(LOG_PATH)
         state = current_state(entries)
         title, sub = STATE_LABELS[state]
-        if state == "waiting":
-            sub += "\nまたはキーボードのスペースキーを押しっぱなしにして質問してください"
         self.labels["state"].configure(text=title, fg=STATE_COLORS[state])
         self.labels["state_sub"].configure(text=sub)
+        # キーで聞き取りを始める機能はまだ作っていない。取り消し線で「使えない」ことを示す
+        self.labels["state_note"].configure(
+            text="またはキーボードのスペースキーを押しっぱなしにして質問してください（準備中）"
+            if state == "waiting" else "")
 
         latest = latest_exchange(entries)
         if latest is None:

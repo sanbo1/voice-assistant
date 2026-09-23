@@ -1,4 +1,6 @@
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -7,10 +9,13 @@ from tools.display_log import (  # noqa: E402
     Statistics,
     confidence_mark,
     current_state,
+    default_state_path,
+    history_alive,
     latest_exchange,
     parse_line,
     past_exchanges,
     read_entries,
+    read_state,
     statistics,
 )
 
@@ -147,3 +152,66 @@ def test_read_entries_reads_tail(tmp_path):
     got = read_entries(path, max_lines=3)
     assert len(got) == 3
     assert got[-1].body == "分かりません。"
+
+
+# ---------- 本体が書く状態ファイル ----------
+
+ALIVE = lambda pid: True  # noqa: E731  テスト用（本体が動いているとみなす）
+
+
+def write_state(tmp_path, **fields):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"state": "listening", "pid": 123, **fields}), encoding="utf-8")
+    return path
+
+
+def test_read_state(tmp_path):
+    assert read_state(write_state(tmp_path), is_alive=ALIVE)["state"] == "listening"
+
+
+def test_read_state_missing_file(tmp_path):
+    assert read_state(tmp_path / "ない.json", is_alive=ALIVE) is None
+
+
+def test_read_state_broken_json(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("{壊れている", encoding="utf-8")
+    assert read_state(path, is_alive=ALIVE) is None
+
+
+def test_read_state_unknown_state_name(tmp_path):
+    assert read_state(write_state(tmp_path, state="なにか"), is_alive=ALIVE) is None
+
+
+def test_read_state_when_assistant_is_gone(tmp_path):
+    """本体が終わっていたら、古い状態を出さない。"""
+    assert read_state(write_state(tmp_path), is_alive=lambda pid: False) is None
+
+
+def test_current_state_prefers_the_reported_state():
+    """本体が書いた状態があれば、会話ログからの推定より優先する。"""
+    assert current_state(entries(), {"state": "speaking"}) == "speaking"
+
+
+def test_current_state_falls_back_to_the_log():
+    """本体の状態が読めないときは、会話ログからの推定を使う。"""
+    assert current_state(entries()[:2], None) == "waiting"
+    assert current_state(entries(), None) == "speaking"  # 末尾が「返答」なので読み上げ中とみなす
+
+
+def test_history_alive():
+    state = {"history_alive_until": "2026-09-23T14:35:00"}
+    assert history_alive(state, datetime.fromisoformat("2026-09-23T14:34:59")) is True
+    assert history_alive(state, datetime.fromisoformat("2026-09-23T14:35:01")) is False
+
+
+def test_history_alive_without_deadline():
+    assert history_alive({"state": "waiting"}) is False
+    assert history_alive(None) is False
+
+
+def test_default_state_path(monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    assert default_state_path().as_posix().endswith("/run/user/1000/voice-assistant/state.json")
+    monkeypatch.delenv("XDG_RUNTIME_DIR")
+    assert default_state_path() is None

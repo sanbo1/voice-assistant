@@ -4,8 +4,11 @@
 画面の描画は display.py にあり、ここには画面に依存しない処理だけを置く（PC でテストできるように）。
 """
 
+import json
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 DEFAULT_LOG = Path.home() / "voice-assistant" / "logs" / "conversation.log"
@@ -90,6 +93,47 @@ def past_exchanges(entries: list[Entry], limit: int = PAST_LIMIT) -> list[tuple[
     return list(reversed(found))[:limit]
 
 
+def default_state_path() -> Path | None:
+    """本体が書く状態ファイル。$XDG_RUNTIME_DIR が無ければ None。"""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return Path(runtime) / "voice-assistant" / "state.json" if runtime else None
+
+
+def _process_alive(pid: int) -> bool:
+    return Path(f"/proc/{pid}").exists()
+
+
+def read_state(path: Path | None = None, is_alive=_process_alive) -> dict | None:
+    """本体が書いた状態を読む。無い・壊れている・本体が動いていない場合は None。
+
+    None のときは会話ログから推定した状態を使う（画面は本体が止まっていても動き続ける）。
+    """
+    path = default_state_path() if path is None else path
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("state") not in STATE_LABELS:
+        return None
+    pid = data.get("pid")
+    if isinstance(pid, int) and not is_alive(pid):
+        return None  # 本体が終わっている。古い状態を出さない
+    return data
+
+
+def history_alive(state: dict | None, now: datetime | None = None) -> bool:
+    """会話履歴がまだ生きている（前の話の続きを話せる）か。"""
+    if not state or "history_alive_until" not in state:
+        return False
+    try:
+        until = datetime.fromisoformat(state["history_alive_until"])
+    except (TypeError, ValueError):
+        return False
+    return (now or datetime.now()) < until
+
+
 def confidence_mark(confidence: float | None) -> tuple[str, str]:
     """確信度を、家族にも分かる記号と文言にする。数値は画面に出さない。"""
     if confidence is None:
@@ -125,8 +169,13 @@ STATE_LABELS = {
 }
 
 
-def current_state(entries: list[Entry]) -> str:
-    """いまの様子。会話ログから推定するため、実際より遅れることがある。"""
+def current_state(entries: list[Entry], state: dict | None = None) -> str:
+    """いまの様子。本体が書いた状態があればそれを使い、無ければ会話ログから推定する。
+
+    推定はログに書かれた時点でしか変わらないため、実際より遅れることがある。
+    """
+    if state:
+        return state["state"]
     if not entries:
         return "unknown"
     last = entries[-1]
@@ -137,9 +186,9 @@ def current_state(entries: list[Entry]) -> str:
     if last.kind == "reply":
         return "speaking"
     if last.kind == "status":
-        for text, state in _STATES:
+        for text, name in _STATES:
             if last.body.startswith(text):
-                return state
+                return name
     return "unknown"
 
 

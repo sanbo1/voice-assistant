@@ -19,6 +19,15 @@ from .conversation_log import ConversationLog
 from .frames import rechunk
 from .history import ConversationHistory
 from .sounds import listen_chime, ready_chime, wake_chime
+from .state import (
+    FOLLOWUP,
+    LISTENING,
+    SPEAKING,
+    STARTING,
+    THINKING,
+    WAITING,
+    StateFile,
+)
 from .stt import RecognitionStream, VoskRecognizer, model_dir_from_config
 from .tts import OpenJTalk, to_speakable
 from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
@@ -96,6 +105,8 @@ class Assistant:
         self._vad = SileroVad()
         self._stt_config = stt_config
         self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
+        # いまの様子を画面へ渡す（書けなくても本体は動く）
+        self._state = StateFile()
         self._tts = OpenJTalk()
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
         self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)
@@ -105,6 +116,7 @@ class Assistant:
     def run(self) -> None:
         """止められるまで（Ctrl+C など）動き続ける。"""
         self._log.status("起動しました")
+        self._note_state(STARTING)
         # 起動直後の読み上げが聞こえないことがあるため、そのときの出力先を残す（2026-09-21）
         before = audio.output_summary(self._audio.output_device)
         logger.info("起動時の出力先：%s", before)
@@ -125,6 +137,7 @@ class Assistant:
                 # 画面の会話ログだけを見ていると、待ち受けに戻ったことが分からず止まって見えるため残す
                 # （短い聞き取りのあとは何も言わずに戻るので、直前の行が「聞き取り：…」のままになる。2026-09-22）
                 self._log.status(WAITING_MESSAGE)
+                self._note_state(WAITING)
                 self.handle_one_turn()
             except Exception as e:
                 logger.exception("想定外のエラー")
@@ -157,6 +170,7 @@ class Assistant:
                 self._log.status(f"聞き取りを終了しました（{utterance.reason.value}）")
             return False
 
+        self._note_state(THINKING)
         started = time.perf_counter()
         text = recognition.finish()
         recognized = time.perf_counter()
@@ -176,6 +190,7 @@ class Assistant:
 
         answer = reply_or_error_message(self._ai, self._history, text, self._log)
         answered = time.perf_counter()
+        self._note_state(SPEAKING)
         self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
         return True
 
@@ -196,6 +211,7 @@ class Assistant:
             logger.info("ウェイクワードを検知（%s）", self._wake_note)
             # 音が出ない場合でも、画面の会話ログで話しかけるタイミングがわかるようにする
             self._log.status(f"聞き取り中…話してください（ウェイクワードを検知、{self._wake_note}）")
+            self._note_state(LISTENING)
             return self._collect(stream, self._endpoint_config)
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる
@@ -209,6 +225,7 @@ class Assistant:
         # 残り回数は出さない。短い聞き取りが 1 回あればそこで終わるため、
         # 「このあと N 回まで」は実際の挙動と食い違っていた（2026-09-22）
         self._log.status(f"続けて話せます（{seconds:g} 秒以内）")
+        self._note_state(FOLLOWUP)
         config = dataclasses.replace(self._endpoint_config, start_timeout_seconds=seconds)
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:
@@ -227,6 +244,10 @@ class Assistant:
             recognition,
         )
         return utterance, recognition
+
+    def _note_state(self, state: str) -> None:
+        """いまの様子を画面に渡す（docs/display-spec.md の段階 2）。"""
+        self._state.write(state, self._history.seconds_left())
 
     def _is_noise(self, confidence: float | None) -> bool:
         """聞き取りの確信度が低すぎるか（雑音を文字にしただけとみなすか）。

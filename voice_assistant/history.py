@@ -28,6 +28,12 @@ class ConversationHistory:
             self.clear()
         return [message for turn in self._turns for message in turn]
 
+    def seconds_left(self) -> float:
+        """会話履歴が消えるまでの秒数。履歴が無い・時間切れなら 0（画面に渡すため）。"""
+        if self._last_time is None or not self._turns:
+            return 0.0
+        return max(0.0, self._ttl_seconds - (self._clock() - self._last_time))
+
     def add(self, user_text: str, assistant_text: str) -> None:
         self.messages()  # 時間切れの古い履歴に続けて追加しないよう、先に確かめる
         self._turns.append((Message("user", user_text), Message("assistant", assistant_text)))

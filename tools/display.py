@@ -24,9 +24,12 @@ from tools.display_log import (  # noqa: E402
     STATE_LABELS,
     confidence_mark,
     current_state,
+    default_state_path,
+    history_alive,
     latest_exchange,
     past_exchanges,
     read_entries,
+    read_state,
     statistics,
 )
 
@@ -34,7 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = PROJECT_ROOT / "logs" / "conversation.log"
 # 見切れの調整値などの保存先。tools/deploy.sh の対象外なので、配置し直しても消えない
 SETTINGS_PATH = PROJECT_ROOT / "display-settings.json"
-REFRESH_MS = 1000
+REFRESH_MS = 500
 
 # テレビは内部で画面を引き伸ばし、端を切り落とすことがある（オーバースキャン）。
 # 既定で上下左右に 4% の余白を取り、実機を見ながら c キーで調整する
@@ -49,9 +52,6 @@ NOT_READY = "#5b6166"
 STATE_COLORS = {"starting": "#9aa0a6", "waiting": "#57d977", "listening": "#5aa9ff",
                 "thinking": "#f2c14e", "speaking": "#5aa9ff", "followup": "#57d977",
                 "error": "#ff6b6b", "unknown": "#9aa0a6"}
-# 会話履歴が生きている（直前のやり取りから 5 分以内）ときの背景。「前の話が続いている」ことを示す
-ALIVE_BACKGROUND = "#17212b"
-
 FONT_CANDIDATES = ("Noto Sans CJK JP", "Noto Sans JP", "IPAexGothic", "IPAGothic",
                    "VL Gothic", "DejaVu Sans")
 # 余白を除いた高さに対する文字の大きさ
@@ -97,6 +97,8 @@ class Display:
         self.calibrating = False
         self.edge_index = 0
         self.log_mtime: float | None = None
+        self.state_mtime: float | None = None
+        self.state_path = default_state_path()
         self.family = pick_font()
 
         root.title("音声アシスタント")
@@ -160,18 +162,24 @@ class Display:
     # ---------- 表示の更新 ----------
 
     def refresh(self) -> None:
-        try:
-            mtime = LOG_PATH.stat().st_mtime
-        except OSError:
-            mtime = None
-        if mtime != self.log_mtime:
-            self.log_mtime = mtime
+        log_mtime = self._mtime(LOG_PATH)
+        state_mtime = self._mtime(self.state_path)
+        if (log_mtime, state_mtime) != (self.log_mtime, self.state_mtime):
+            self.log_mtime, self.state_mtime = log_mtime, state_mtime
             self.update_texts()
         self.root.after(REFRESH_MS, self.refresh)
 
+    @staticmethod
+    def _mtime(path) -> float | None:
+        try:
+            return path.stat().st_mtime if path is not None else None
+        except OSError:
+            return None
+
     def update_texts(self) -> None:
         entries = read_entries(LOG_PATH)
-        state = current_state(entries)
+        reported = read_state(self.state_path)
+        state = current_state(entries, reported)
         title, sub = STATE_LABELS[state]
         self.labels["state"].configure(text=title, fg=STATE_COLORS[state])
         self.labels["state_sub"].configure(text=sub)
@@ -195,7 +203,9 @@ class Display:
                 text=f"返答　： {shorten(reply.body, 160)}" if reply else "（うまく聞き取れず、AI には送っていません）")
 
         past = past_exchanges(entries)
+        # 会話履歴が生きている間は明るく出す（「前の話の続き」を言えると分かるように）
         self.labels["past"].configure(
+            fg=DIM if history_alive(reported) else NOT_READY,
             text="\n".join(f"・{shorten(h.body, 22)} → {shorten(r.body, 26)}　{r.clock}" for h, r in past))
 
         got = statistics(entries)

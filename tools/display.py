@@ -25,6 +25,7 @@ from tools.display_log import (  # noqa: E402
     confidence_mark,
     current_state,
     default_state_path,
+    default_talk_path,
     history_alive,
     latest_exchange,
     past_exchanges,
@@ -38,6 +39,9 @@ LOG_PATH = PROJECT_ROOT / "logs" / "conversation.log"
 # 見切れの調整値などの保存先。tools/deploy.sh の対象外なので、配置し直しても消えない
 SETTINGS_PATH = PROJECT_ROOT / "display-settings.json"
 REFRESH_MS = 500
+# ボタンの合図を送る間隔と、キーの自動リピートを見分けるための待ち時間
+TALK_TOUCH_MS = 200
+KEY_REPEAT_MS = 60
 
 # テレビは内部で画面を引き伸ばし、端を切り落とすことがある（オーバースキャン）。
 # 既定で上下左右に 4% の余白を取り、実機を見ながら c キーで調整する
@@ -99,6 +103,9 @@ class Display:
         self.log_mtime: float | None = None
         self.state_mtime: float | None = None
         self.state_path = default_state_path()
+        self.talk_path = default_talk_path()
+        self.talking = False
+        self.release_job = None
         self.family = pick_font()
 
         root.title("音声アシスタント")
@@ -112,8 +119,7 @@ class Display:
         self.labels = {
             "state": self._label("state", TEXT),
             "state_sub": self._label("state_sub", DIM),
-            # 段階 3（キーで聞き取りを始める）はまだ作っていないため、取り消し線を引いて出す
-            "state_note": self._label("state_sub", NOT_READY, style="overstrike"),
+            "state_note": self._label("state_sub", DIM),
             "heard": self._label("heard", TEXT),
             "mark": self._label("state_sub", DIM),
             "reply": self._label("reply", TEXT),
@@ -131,6 +137,8 @@ class Display:
             self.labels[key].pack(anchor="w", fill="x")
 
         root.bind("<Key>", self.on_key)
+        root.bind("<KeyPress-space>", self.on_talk_press)
+        root.bind("<KeyRelease-space>", self.on_talk_release)
         self.layout()
         self.refresh()
 
@@ -183,9 +191,8 @@ class Display:
         title, sub = STATE_LABELS[state]
         self.labels["state"].configure(text=title, fg=STATE_COLORS[state])
         self.labels["state_sub"].configure(text=sub)
-        # キーで聞き取りを始める機能はまだ作っていない。取り消し線で「使えない」ことを示す
         self.labels["state_note"].configure(
-            text="またはキーボードのスペースキーを押しっぱなしにして質問してください（準備中）"
+            text="またはキーボードのスペースキーを押しっぱなしにして質問してください"
             if state == "waiting" else "")
 
         latest = latest_exchange(entries)
@@ -216,6 +223,45 @@ class Display:
         if got.fallback_model:
             parts.append(f"予備のモデル使用中（{got.fallback_model}）")
         self.labels["stats"].configure(text="　".join(parts))
+
+    # ---------- ボタン（スペースキー）----------
+
+    def on_talk_press(self, event: tk.Event) -> str:
+        """押している間だけ聞き取ってもらう。合図を短い間隔で送り続ける。"""
+        if self.release_job is not None:  # 自動リピートによる「離した」を取り消す
+            self.root.after_cancel(self.release_job)
+            self.release_job = None
+        if not self.talking:
+            self.talking = True
+            self.touch_talk()
+        return "break"  # 調整モードのキー処理には渡さない
+
+    def on_talk_release(self, event: tk.Event) -> str:
+        """離したことにする。ただし自動リピートの可能性があるので少し待って確かめる。"""
+        if self.release_job is not None:
+            self.root.after_cancel(self.release_job)
+        self.release_job = self.root.after(KEY_REPEAT_MS, self.stop_talk)
+        return "break"
+
+    def touch_talk(self) -> None:
+        """押している間、合図のファイルを更新し続ける（止まれば本体が自動で解除する）。"""
+        if not self.talking or self.talk_path is None:
+            return
+        try:
+            self.talk_path.parent.mkdir(parents=True, exist_ok=True)
+            self.talk_path.touch()
+        except OSError:
+            pass
+        self.root.after(TALK_TOUCH_MS, self.touch_talk)
+
+    def stop_talk(self) -> None:
+        self.release_job = None
+        self.talking = False
+        if self.talk_path is not None:
+            try:
+                self.talk_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     # ---------- 見切れの調整 ----------
 

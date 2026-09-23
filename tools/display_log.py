@@ -99,6 +99,12 @@ def default_state_path() -> Path | None:
     return Path(runtime) / "voice-assistant" / "state.json" if runtime else None
 
 
+def default_talk_path() -> Path | None:
+    """ボタンの合図を書くファイル（本体の voice_assistant/talk_key.py と同じ場所）。"""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return Path(runtime) / "voice-assistant" / "talk" if runtime else None
+
+
 def _process_alive(pid: int) -> bool:
     return Path(f"/proc/{pid}").exists()
 

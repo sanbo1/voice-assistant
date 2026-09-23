@@ -60,6 +60,7 @@ class EndReason(Enum):
     SILENCE = "話し終わり（無音が続いた）"
     MAX_LENGTH = "最大の長さに達した"
     NO_SPEECH = "時間内に話し始めなかった"
+    RELEASED = "ボタンを離した"
     INPUT_ENDED = "音声の入力が終わった"
 
 

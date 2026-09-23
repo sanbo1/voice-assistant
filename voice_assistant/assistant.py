@@ -29,6 +29,7 @@ from .state import (
     StateFile,
 )
 from .stt import RecognitionStream, VoskRecognizer, model_dir_from_config
+from .talk_key import TalkSignal, collect_while_held
 from .tts import OpenJTalk, to_speakable
 from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
 from .wakeword import FRAME_SAMPLES, WakeWordDetector
@@ -107,6 +108,8 @@ class Assistant:
         self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
         # いまの様子を画面へ渡す（書けなくても本体は動く）
         self._state = StateFile()
+        # ボタン（いまは画面のスペースキー）を押している間だけ聞き取るための合図
+        self._talk = TalkSignal()
         self._tts = OpenJTalk()
         # お知らせ音も再生に使う周波数で作り、PipeWire での変換をなくす
         self._chime = wake_chime(audio.OUTPUT_SAMPLE_RATE)
@@ -199,10 +202,16 @@ class Assistant:
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:
             self._detector.reset()
+            by_key = False
             for frame in stream:
+                if self._talk.pressed():
+                    by_key = True
+                    break
                 if self._detector.process(frame):
                     break
             audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
+            if by_key:
+                return self._collect_held(stream)
             # 最大スコアとスコアの並びも残す（本物の反応と誤反応の違いを見分ける材料にする）
             self._wake_note = (f"最大 {self._detector.last_peak:.2f}、"
                                f"並び {' '.join(f'{score:.2f}' for score in self._detector.last_scores)}"
@@ -215,6 +224,17 @@ class Assistant:
             return self._collect(stream, self._endpoint_config)
         finally:
             stream.close()  # 読み上げの間はマイクを閉じる
+
+    def _collect_held(self, stream: Iterator[np.ndarray]) -> tuple[Utterance, RecognitionStream]:
+        """ボタンを押している間だけ聞き取る（話し終わりの無音判定は使わない）。"""
+        self._wake_note = "ボタン"
+        logger.info("ボタンで聞き取りを開始")
+        self._log.status("聞き取り中…話してください（ボタンを押している間）")
+        self._note_state(LISTENING)
+        recognition = self._recognizer.start()
+        max_frames = int(self._endpoint_config.max_seconds * audio.SAMPLE_RATE / FRAME_SAMPLES)
+        utterance = collect_while_held(stream, self._talk.held, max_frames, recognition)
+        return utterance, recognition
 
     def _listen_again(self) -> tuple[Utterance, RecognitionStream]:
         """返答のあと、ウェイクワードなしで続けて話せる状態にする。"""

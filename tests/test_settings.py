@@ -22,6 +22,12 @@ def test_changes_lists_what_moved():
            "ウェイクワードの確認しきい値 0.0 → 0.6" in got
 
 
+def test_changes_names_the_key_and_wake_turns_separately():
+    got = changes(base(), load_settings({"FOLLOWUP_MAX_TURNS": "2", "FOLLOWUP_MAX_TURNS_KEY": "1"}))
+    assert "続けて話せる回数（ウェイクワード） 3 → 2" in got
+    assert "続けて話せる回数（スペースキー） 0 → 1" in got
+
+
 def test_changes_is_empty_when_nothing_moved():
     assert changes(base(), base()) == []
 

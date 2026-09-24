@@ -114,6 +114,7 @@ class Assistant:
         self._endpoint_config = endpoint_config
         self._detector = WakeWordDetector(config=wakeword_config)
         self._wake_note = ""  # 直前の検知のスコア（空振りだったときに記録へ残すため）
+        self._by_key = False  # 直前の聞き取りをスペースキーで始めたか（続けて話せる回数を選ぶため）
         self._vad = SileroVad()
         self._stt_config = stt_config
         self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
@@ -165,8 +166,10 @@ class Assistant:
         """ウェイクワードを待って質問に答え、そのあとは決めた回数まで続けて話せるようにする。"""
         if not self._answer_once(self._wake_and_listen, after_wake=True):
             return
+        # スペースキーで始めたときは、ウェイクワードのときとは別の回数を使う（既定は 0 ＝ 続けて聞かない）
+        max_turns = self._config.followup_max_turns_key if self._by_key else self._config.followup_max_turns
         # 質問にならなかった回があれば、その時点で待ち受けに戻る（雑音を拾い続けないため）
-        for _ in range(self._config.followup_max_turns):
+        for _ in range(max_turns):
             if self._config.followup_seconds <= 0:
                 return
             if not self._answer_once(self._listen_again):
@@ -216,7 +219,7 @@ class Assistant:
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:
             self._detector.reset()
-            by_key = False
+            self._by_key = False
             waited = 0
             for frame in stream:
                 # 待ち受け中だけ設定の変更を見る（約 1 秒ごと。会話の途中では変えない）
@@ -224,12 +227,12 @@ class Assistant:
                 if waited % SETTINGS_CHECK_FRAMES == 0:
                     self._apply_new_settings()
                 if self._talk.pressed():
-                    by_key = True
+                    self._by_key = True
                     break
                 if self._detector.process(frame):
                     break
             audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
-            if by_key:
+            if self._by_key:
                 return self._collect_held(stream)
             # 最大スコアとスコアの並びも残す（本物の反応と誤反応の違いを見分ける材料にする）
             self._wake_note = (f"最大 {self._detector.last_peak:.2f}、"

@@ -161,8 +161,10 @@ nano ~/voice-assistant/.env
 - `GEMINI_FALLBACK_MODELS`：予備のモデル（カンマ区切り）。空なら既定（gemini-3.5-flash-lite、gemini-3.1-flash-lite）。
   無料枠の 1 日の上限はモデルごと（gemini-3.6-flash は 20 回/日だった）。上限に達したモデルは 1 時間ごとに確認し、
   回復したら優先のモデルに戻る。切り替えは会話ログの「状態」に、予備のモデルでの返答は「返答（モデル名）」と書かれる。
-- `FOLLOWUP_SECONDS` / `FOLLOWUP_MAX_TURNS`：返答のあと、ウェイクワードなしで続けて話せる秒数と回数
-  （空なら 3 秒・3 回）。`FOLLOWUP_SECONDS=0` にすると、続けて話す機能を使わない。
+- `FOLLOWUP_SECONDS` / `FOLLOWUP_MAX_TURNS` / `FOLLOWUP_MAX_TURNS_KEY`：返答のあと、ウェイクワードなしで
+  続けて話せる秒数と回数。回数は話し始めた方法ごとに分けてあり、ウェイクワードのとき（`FOLLOWUP_MAX_TURNS`、
+  空なら 3 回）とスペースキーのとき（`FOLLOWUP_MAX_TURNS_KEY`、空なら 0 回＝続けて聞かない）。
+  秒数は空なら 3 秒。`FOLLOWUP_SECONDS=0` にすると、どちらでも続けて話す機能を使わない。
 - `VOSK_MODEL_DIR`：音声認識に使うモデル（`models/` の中のフォルダ名）。空なら既定の大型
   （`vosk-model-ja-0.22`）。小型（`vosk-model-small-ja-0.22`）に戻すときに書く。
   2026-09-21 に小型から大型へ切り替えた。実測では、小型が誤った 3 件が大型では正しくなり、

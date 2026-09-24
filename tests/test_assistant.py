@@ -10,6 +10,7 @@ from voice_assistant.assistant import (
     is_slow_playback,
     reply_or_error_message,
 )
+from voice_assistant.config import AssistantConfig
 from voice_assistant.history import ConversationHistory
 
 
@@ -173,3 +174,42 @@ def test_other_errors_keep_the_general_message():
 def test_quota_messages_are_unchanged():
     assert answer_for(AiError("上限", status=429, quota="day")) == DAILY_LIMIT_MESSAGE
     assert answer_for(AiError("上限", status=429)) == RATE_LIMIT_MESSAGE
+
+
+# ---------- 続けて話せる回数：ウェイクワードとスペースキーで分ける（2026-09-24）----------
+
+
+def turns_taken(by_key, config):
+    """最初の質問のあと、続けて聞き取りに進んだ回数を返す（聞き取りと AI は差し替える）。"""
+    assistant = Assistant.__new__(Assistant)
+    assistant._config = config
+    assistant._by_key = False
+    calls = []
+
+    def answer_once(listen, *, after_wake=False):
+        calls.append(after_wake)
+        if after_wake:
+            assistant._by_key = by_key  # 本物は _wake_and_listen の中で決まる
+        return True
+
+    assistant._answer_once = answer_once
+    assistant.handle_one_turn()
+    return len(calls) - 1
+
+
+def test_wake_word_allows_the_configured_followups():
+    assert turns_taken(False, AssistantConfig(followup_max_turns=3, followup_max_turns_key=0)) == 3
+
+
+def test_space_key_does_not_listen_again_by_default():
+    assert turns_taken(True, AssistantConfig(followup_max_turns=3)) == 0
+
+
+def test_space_key_has_its_own_count():
+    assert turns_taken(True, AssistantConfig(followup_max_turns=3, followup_max_turns_key=2)) == 2
+
+
+def test_followup_seconds_zero_disables_it_for_both():
+    config = AssistantConfig(followup_seconds=0, followup_max_turns=3, followup_max_turns_key=2)
+    assert turns_taken(False, config) == 0
+    assert turns_taken(True, config) == 0

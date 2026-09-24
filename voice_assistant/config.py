@@ -54,6 +54,9 @@ class AssistantConfig:
     followup_seconds: float = 3.0
     # 続けて話せる回数の上限（1 回のウェイクワードにつき）
     followup_max_turns: int = 3
+    # スペースキーで話し始めたときの、続けて話せる回数の上限（0 なら、1 問で待ち受けに戻る）。
+    # 押している間だけ聞き取る操作なので、続けて聞き取るとかえって周りの音を拾う（2026-09-24）
+    followup_max_turns_key: int = 0
 
 
 def parse_number(value: str | None, default: float | int) -> float | int:
@@ -71,6 +74,7 @@ def load_assistant_config(env: Mapping[str, str] = os.environ) -> AssistantConfi
     return AssistantConfig(
         followup_seconds=parse_number(env.get("FOLLOWUP_SECONDS"), AssistantConfig.followup_seconds),
         followup_max_turns=parse_number(env.get("FOLLOWUP_MAX_TURNS"), AssistantConfig.followup_max_turns),
+        followup_max_turns_key=parse_number(env.get("FOLLOWUP_MAX_TURNS_KEY"), AssistantConfig.followup_max_turns_key),
     )
 
 

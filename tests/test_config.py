@@ -68,6 +68,18 @@ def test_load_assistant_config_from_env():
     assert config == AssistantConfig(followup_seconds=5.0, followup_max_turns=1)
 
 
+def test_followup_turns_by_key_default_to_zero():
+    """スペースキーで話し始めたときは、既定では続けて聞き取らない（2026-09-24）。"""
+    assert AssistantConfig().followup_max_turns_key == 0
+    assert load_assistant_config({}).followup_max_turns_key == 0
+
+
+def test_followup_turns_by_key_from_env():
+    config = load_assistant_config({"FOLLOWUP_MAX_TURNS": "3", "FOLLOWUP_MAX_TURNS_KEY": "2"})
+    assert (config.followup_max_turns, config.followup_max_turns_key) == (3, 2)
+    assert load_assistant_config({"FOLLOWUP_MAX_TURNS_KEY": "x"}).followup_max_turns_key == 0
+
+
 def test_load_assistant_config_ignores_invalid_values():
     config = load_assistant_config({"FOLLOWUP_SECONDS": "x", "FOLLOWUP_MAX_TURNS": " "})
     assert config == AssistantConfig()

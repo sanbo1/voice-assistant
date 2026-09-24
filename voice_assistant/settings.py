@@ -37,7 +37,8 @@ ENV_PATH = PROJECT_ROOT / ".env"
 # 会話ログに出すときの言い方（変数名のままでは分かりにくいため）
 LABELS = {
     "assistant.followup_seconds": "続けて話せる秒数",
-    "assistant.followup_max_turns": "続けて話せる回数",
+    "assistant.followup_max_turns": "続けて話せる回数（ウェイクワード）",
+    "assistant.followup_max_turns_key": "続けて話せる回数（スペースキー）",
     "wakeword.threshold": "ウェイクワードのしきい値",
     "wakeword.patience_frames": "ウェイクワードの連続フレーム数",
     "wakeword.confirm_frames": "ウェイクワードの確認窓",

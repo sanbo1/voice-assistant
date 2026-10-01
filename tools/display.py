@@ -216,9 +216,11 @@ class Display:
             mark, _ = confidence_mark(heard.confidence)
             self.labels["heard"].configure(text=f"質問　： {shorten(heard.body, 40)}",
                                            fg=HEARD_COLORS[mark])
-            self.labels["reply"].configure(
-                # 送らなかった理由は短すぎた場合と確信度が低い場合があるため、まとめた言い方にする
-                text=f"返答　： {shorten(reply.body, 200)}" if reply else "（うまく聞き取れず、AI には送っていません）")
+            # 返答がまだ無い間は空欄にする。質問欄は認識直後に切り替わるが、返答は AI の応答を
+            # 待つ必要があるため、考え中の間に前回の文言を出したままだと「今回も聞き取れなかったのか」と
+            # 誤解されるため（2026-09-24 に利用者から指摘）。送らなかった理由（雑音・短すぎ）も含めて
+            # 空欄にする（理由は確信度の記号と状態表示から読み取れる）
+            self.labels["reply"].configure(text=f"返答　： {shorten(reply.body, 200)}" if reply else "")
 
         past = past_exchanges(entries, limit=PAST_ON_SCREEN)
         # 会話履歴が生きている間は明るく出す（「前の話の続き」を言えると分かるように）

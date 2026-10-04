@@ -213,3 +213,54 @@ def test_followup_seconds_zero_disables_it_for_both():
     config = AssistantConfig(followup_seconds=0, followup_max_turns=3, followup_max_turns_key=2)
     assert turns_taken(False, config) == 0
     assert turns_taken(True, config) == 0
+
+
+# ---------- AI を使わない回答（今日のごみ。2026-10-04）----------
+
+
+class LocalLog(StatusLog):
+    def reply(self, text, model=None):
+        self.lines.append(("reply", text, model))
+
+
+def make_local_assistant(log):
+    assistant = Assistant.__new__(Assistant)
+    assistant._log = log
+    assistant._history = ConversationHistory()
+    return assistant
+
+
+def test_local_answer_is_logged_with_its_source_and_kept_in_history(monkeypatch):
+    from voice_assistant import garbage
+
+    monkeypatch.setattr(garbage, "answer", lambda text, day: garbage.Answer("今日は月曜日です。燃えるごみの日です。"))
+    log = LocalLog()
+    assistant = make_local_assistant(log)
+    assert assistant._answer_locally("今日のごみは") == "今日は月曜日です。燃えるごみの日です。"
+    assert log.lines == [("reply", "今日は月曜日です。燃えるごみの日です。", "予定表")]
+    assert [m.text for m in assistant._history.messages()] == ["今日のごみは", "今日は月曜日です。燃えるごみの日です。"]
+
+
+def test_local_answer_returns_none_for_other_questions(monkeypatch):
+    from voice_assistant import garbage
+
+    monkeypatch.setattr(garbage, "answer", lambda text, day: None)
+    log = LocalLog()
+    assistant = make_local_assistant(log)
+    assert assistant._answer_locally("今日の天気は") is None
+    assert log.lines == []
+    assert assistant._history.messages() == []
+
+
+def test_unusable_schedule_is_answered_and_reported_without_asking_ai(monkeypatch):
+    """予定表が使えないときも、定型の質問には答える（AI には送らない）。理由はエラーに、答えは返答に残す。"""
+    from voice_assistant import garbage
+
+    monkeypatch.setattr(garbage, "answer", lambda text, day: garbage.Answer(
+        garbage.MISSING_MESSAGE, "garbage.json がありません"))
+    log = LocalLog()
+    assistant = make_local_assistant(log)
+    assert assistant._answer_locally("今日のごみは") == garbage.MISSING_MESSAGE
+    assert log.lines == [("error", "ごみの予定表を使えませんでした（garbage.json がありません）"),
+                         ("reply", garbage.MISSING_MESSAGE, "予定表")]
+    assert assistant._history.messages() == []  # 失敗の文言を、AI が前の答えとして踏まえないように

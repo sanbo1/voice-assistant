@@ -22,6 +22,9 @@ _LINE = re.compile(r"^(\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+([^：]+)：(.*)$")
 _CONFIDENCE = re.compile(r"確信度 ([0-9.]+)")
 _MODEL = re.compile(r"^返答（(.+)）$")
 _SUPPRESSED = re.compile(r"見送り (\d+) 回")
+# AI を使わずに答えた返答の印（voice_assistant/garbage.py の LOG_LABEL と同じ。画面は本体の依存を読み込まない）。
+# 「今日の利用」は AI の利用回数（無料枠）を表すので、数えない
+LOCAL_SOURCES = ("予定表",)
 
 
 @dataclass(frozen=True)
@@ -210,7 +213,7 @@ class Statistics:
 
 def statistics(entries: list[Entry]) -> Statistics:
     """会話ログ 1 ファイル分（＝その日）の集計。"""
-    replies = [e for e in entries if e.kind == "reply"]
+    replies = [e for e in entries if e.kind == "reply" and e.model not in LOCAL_SOURCES]
     status = [e.body for e in entries if e.kind == "status"]
     suppressed = sum(int(m.group(1)) for body in status if (m := _SUPPRESSED.search(body)))
     suppressed += sum(1 for body in status if body.startswith("雑音とみなして"))

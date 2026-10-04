@@ -215,3 +215,25 @@ def test_default_state_path(monkeypatch):
     assert default_state_path().as_posix().endswith("/run/user/1000/voice-assistant/state.json")
     monkeypatch.delenv("XDG_RUNTIME_DIR")
     assert default_state_path() is None
+
+
+def test_statistics_does_not_count_schedule_answers_as_ai_calls():
+    """予定表で答えた返答は、AI の利用回数（無料枠）に数えない（2026-10-04）。"""
+    lines = (
+        "10/04 07:00:00  聞き取り（確信度 0.95）：今日のごみは",
+        "10/04 07:00:01  返答（予定表）：今日は月曜日です。燃えるごみの日です。",
+        "10/04 07:01:00  聞き取り（確信度 0.95）：今日は何の日",
+        "10/04 07:01:02  返答：今日は秋分の日です。",
+    )
+    got = statistics([parse_line(line) for line in lines])
+    assert got.ai_calls == 1
+    assert got.fallback_model is None
+
+
+def test_schedule_answer_is_shown_on_screen_like_any_reply():
+    lines = (
+        "10/04 07:00:00  聞き取り（確信度 0.95）：今日のごみは",
+        "10/04 07:00:01  返答（予定表）：今日は月曜日です。燃えるごみの日です。",
+    )
+    heard, reply = latest_exchange([parse_line(line) for line in lines])
+    assert reply.body == "今日は月曜日です。燃えるごみの日です。"

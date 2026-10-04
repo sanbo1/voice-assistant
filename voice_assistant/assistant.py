@@ -9,12 +9,14 @@ import dataclasses
 import logging
 import time
 from collections.abc import Callable, Iterator
+from datetime import datetime
 
 import numpy as np
 
 from . import audio
 from .ai import AiError, ChatClient
 from .ai.base import BUSY, NETWORK, TIMEOUT
+from . import garbage
 from .config import AssistantConfig, AudioConfig, GeminiConfig, SttConfig, WakeWordConfig
 from .conversation_log import ConversationLog
 from .frames import rechunk
@@ -208,11 +210,29 @@ class Assistant:
                 self._log_empty_wake("雑音とみなした")
             return False
 
-        answer = reply_or_error_message(self._ai, self._history, text, self._log)
+        answer = self._answer_locally(text)
+        if answer is None:
+            answer = reply_or_error_message(self._ai, self._history, text, self._log)
         answered = time.perf_counter()
         self._note_state(SPEAKING)
         self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
         return True
+
+    def _answer_locally(self, text: str) -> str | None:
+        """AI を使わずに答えられる質問なら、答えを返す（いまは「今日のごみ」だけ。2026-10-04）。
+
+        予定表を使えないときも、定型の質問には「登録されていません」と答える（AI には送らない）。
+        理由は会話ログのエラーに残す。画面にも答えが出るよう「返答」にも書くが、会話履歴には入れない。
+        """
+        found = garbage.answer(text, datetime.now().date())
+        if found is None:
+            return None
+        if found.problem:
+            self._log.error(f"ごみの予定表を使えませんでした（{found.problem}）")
+        else:
+            self._history.add(text, found.text)  # 続けて話したときに、AI が前の答えを踏まえられるように
+        self._log.reply(found.text, garbage.LOG_LABEL)
+        return found.text
 
     def _wake_and_listen(self) -> tuple[Utterance, RecognitionStream]:
         """ウェイクワードを待ち、お知らせ音を鳴らしてから聞き取る（マイクは開いたまま続ける）。"""

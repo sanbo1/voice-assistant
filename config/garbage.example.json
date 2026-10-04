@@ -1,0 +1,11 @@
+{
+  "rules": [
+    {"weekday": "月", "items": ["燃えるごみ"]},
+    {"weekday": "水", "items": ["資源ごみ"]},
+    {"weekday": "金", "weeks": [1, 3], "items": ["燃えないごみ"]}
+  ],
+  "no_collection": {
+    "weekdays": ["土", "日"],
+    "dates": ["01-01", "01-02", "01-03"]
+  }
+}

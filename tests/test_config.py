@@ -80,6 +80,15 @@ def test_followup_turns_by_key_from_env():
     assert load_assistant_config({"FOLLOWUP_MAX_TURNS_KEY": "x"}).followup_max_turns_key == 0
 
 
+def test_talk_key_skip_seconds():
+    """スペースキーを押した直後に捨てる秒数（既定 0.5。2026-10-04）。"""
+    assert AssistantConfig().talk_key_skip_seconds == 0.5
+    assert load_assistant_config({}).talk_key_skip_seconds == 0.5
+    assert load_assistant_config({"TALK_KEY_SKIP_SECONDS": "0.3"}).talk_key_skip_seconds == 0.3
+    assert load_assistant_config({"TALK_KEY_SKIP_SECONDS": "0"}).talk_key_skip_seconds == 0.0
+    assert load_assistant_config({"TALK_KEY_SKIP_SECONDS": "x"}).talk_key_skip_seconds == 0.5
+
+
 def test_load_assistant_config_ignores_invalid_values():
     config = load_assistant_config({"FOLLOWUP_SECONDS": "x", "FOLLOWUP_MAX_TURNS": " "})
     assert config == AssistantConfig()

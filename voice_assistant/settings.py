@@ -39,6 +39,7 @@ LABELS = {
     "assistant.followup_seconds": "続けて話せる秒数",
     "assistant.followup_max_turns": "続けて話せる回数（ウェイクワード）",
     "assistant.followup_max_turns_key": "続けて話せる回数（スペースキー）",
+    "assistant.talk_key_skip_seconds": "スペースキーで押した直後に捨てる秒数",
     "wakeword.threshold": "ウェイクワードのしきい値",
     "wakeword.patience_frames": "ウェイクワードの連続フレーム数",
     "wakeword.confirm_frames": "ウェイクワードの確認窓",

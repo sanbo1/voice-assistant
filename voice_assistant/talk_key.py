@@ -15,6 +15,7 @@
 仕様は docs/display-spec.md を参照。
 """
 
+import math
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -63,23 +64,38 @@ class TalkSignal:
         return started
 
 
+def frames_to_skip(seconds: float, sample_rate: int, frame_samples: int) -> int:
+    """押した直後に捨てる秒数を、フレーム数にする（端数は切り上げる。負の値は 0）。"""
+    return max(0, math.ceil(seconds * sample_rate / frame_samples - 1e-9))
+
+
 def collect_while_held(
     frames: Iterable[np.ndarray],
     held: Callable[[], bool],
     max_frames: int,
     listener=None,
+    skip_frames: int = 0,
 ) -> Utterance:
     """ボタンを押している間の音声を集める。
 
     話し終わりの無音判定は使わない。テレビがついていると無音にならず録り続けてしまうため、
     押している範囲をそのまま発話とする。押しっぱなしで放置された場合に備え max_frames で打ち切る。
+
+    押した直後の skip_frames フレームは、集めず、音声認識にも渡さずに捨てる（離したかどうかは見る）。
+    押した瞬間に鳴るお知らせ音をマイクが拾い、音声認識が「と」「ん」などの短い言葉にしてしまうため
+    （2026-10-04 に実機の録音で確認。先頭 0.2 秒を捨てると、頭の余計な文字が消え、誤認識も直った）。
+    max_frames は、捨てたあとに集めるフレームの数。
     """
     collected: list[np.ndarray] = []
     reason = EndReason.INPUT_ENDED
+    skipped = 0
     for frame in frames:
         if not held():
             reason = EndReason.RELEASED
             break
+        if skipped < skip_frames:
+            skipped += 1
+            continue
         collected.append(frame)
         if listener is not None:
             listener.accept(frame)

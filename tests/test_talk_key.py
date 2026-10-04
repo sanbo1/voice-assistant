@@ -1,6 +1,12 @@
 import numpy as np
 
-from voice_assistant.talk_key import FRESH_SECONDS, TalkSignal, collect_while_held, default_path
+from voice_assistant.talk_key import (
+    FRESH_SECONDS,
+    TalkSignal,
+    collect_while_held,
+    default_path,
+    frames_to_skip,
+)
 from voice_assistant.vad import EndReason
 
 
@@ -113,3 +119,55 @@ def test_input_ends_before_release():
     utterance = collect_while_held(frames(2), lambda: True, max_frames=100)
     assert utterance.reason is EndReason.INPUT_ENDED
     assert len(utterance.samples) == 2 * 4
+
+
+# ---------- 押した直後の音を捨てる（お知らせ音を拾わないため。2026-10-04）----------
+
+
+def test_skips_the_first_frames_without_collecting_them():
+    utterance = collect_while_held(frames(10), lambda: True, max_frames=100, skip_frames=3)
+    assert utterance.reason is EndReason.INPUT_ENDED
+    # 0〜2 を捨て、3〜9 の 7 フレームを集める（先頭は 3 のフレーム）
+    assert len(utterance.samples) == 7 * 4
+    assert utterance.samples[0] == 3
+
+
+def test_skipped_frames_are_not_given_to_the_recognizer():
+    recorder = Recorder()
+    collect_while_held(frames(10), lambda: True, max_frames=100, listener=recorder, skip_frames=3)
+    assert recorder.accepted == 7
+
+
+def test_max_frames_counts_only_collected_frames():
+    utterance = collect_while_held(frames(20), lambda: True, max_frames=4, skip_frames=3)
+    assert utterance.reason is EndReason.MAX_LENGTH
+    assert len(utterance.samples) == 4 * 4
+    assert utterance.samples[0] == 3
+
+
+def test_release_during_the_skip_gives_no_audio():
+    """押してすぐ離した（捨てている間に離した）ときは、音声なしとして終わる。"""
+    held = iter([True, True, False])
+    utterance = collect_while_held(frames(10), lambda: next(held), max_frames=100, skip_frames=5)
+    assert utterance.samples is None
+    assert utterance.reason is EndReason.RELEASED
+
+
+def test_input_ending_during_the_skip_gives_no_audio():
+    utterance = collect_while_held(frames(2), lambda: True, max_frames=100, skip_frames=5)
+    assert utterance.samples is None
+    assert utterance.reason is EndReason.INPUT_ENDED
+
+
+def test_no_skip_by_default():
+    utterance = collect_while_held(frames(4), lambda: True, max_frames=100)
+    assert len(utterance.samples) == 4 * 4
+
+
+def test_frames_to_skip():
+    """16kHz・1280 サンプル（80ms）のフレームで、0.5 秒は切り上げて 7 フレーム。"""
+    assert frames_to_skip(0.5, 16000, 1280) == 7
+    assert frames_to_skip(0.64, 16000, 1280) == 8   # ちょうど割り切れる値は切り上げない
+    assert frames_to_skip(0.08, 16000, 1280) == 1
+    assert frames_to_skip(0.0, 16000, 1280) == 0
+    assert frames_to_skip(-1.0, 16000, 1280) == 0

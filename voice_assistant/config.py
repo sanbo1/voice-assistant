@@ -57,6 +57,10 @@ class AssistantConfig:
     # スペースキーで話し始めたときの、続けて話せる回数の上限（0 なら、1 問で待ち受けに戻る）。
     # 押している間だけ聞き取る操作なので、続けて聞き取るとかえって周りの音を拾う（2026-09-24）
     followup_max_turns_key: int = 0
+    # スペースキーを押した直後の、音声認識に渡さない秒数。押した瞬間のお知らせ音をマイクが拾い、
+    # 質問の頭に「と」「ん」が付くのを防ぐ（0 なら捨てない。2026-10-04）。
+    # 実測：お知らせ音は押してから約 0.1〜0.5 秒に入る。話し声の始まりは約 0.7 秒後だった（話し方による）
+    talk_key_skip_seconds: float = 0.5
 
 
 def parse_number(value: str | None, default: float | int) -> float | int:
@@ -75,6 +79,7 @@ def load_assistant_config(env: Mapping[str, str] = os.environ) -> AssistantConfi
         followup_seconds=parse_number(env.get("FOLLOWUP_SECONDS"), AssistantConfig.followup_seconds),
         followup_max_turns=parse_number(env.get("FOLLOWUP_MAX_TURNS"), AssistantConfig.followup_max_turns),
         followup_max_turns_key=parse_number(env.get("FOLLOWUP_MAX_TURNS_KEY"), AssistantConfig.followup_max_turns_key),
+        talk_key_skip_seconds=parse_number(env.get("TALK_KEY_SKIP_SECONDS"), AssistantConfig.talk_key_skip_seconds),
     )
 
 

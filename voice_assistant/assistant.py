@@ -33,7 +33,7 @@ from .state import (
     StateFile,
 )
 from .stt import RecognitionStream, VoskRecognizer, model_dir_from_config
-from .talk_key import TalkSignal, collect_while_held
+from .talk_key import TalkSignal, collect_while_held, frames_to_skip
 from .tts import OpenJTalk, to_speakable
 from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
 from .wakeword import FRAME_SAMPLES, WakeWordDetector
@@ -275,7 +275,9 @@ class Assistant:
         self._note_state(LISTENING)
         recognition = self._recognizer.start()
         max_frames = int(self._endpoint_config.max_seconds * audio.SAMPLE_RATE / FRAME_SAMPLES)
-        utterance = collect_while_held(stream, self._talk.held, max_frames, recognition)
+        # 押した直後はお知らせ音を拾うので、音声認識に渡さない（質問の頭に「と」「ん」が付くのを防ぐ）
+        skip = frames_to_skip(self._config.talk_key_skip_seconds, audio.SAMPLE_RATE, FRAME_SAMPLES)
+        utterance = collect_while_held(stream, self._talk.held, max_frames, recognition, skip_frames=skip)
         return utterance, recognition
 
     def _listen_again(self) -> tuple[Utterance, RecognitionStream]:

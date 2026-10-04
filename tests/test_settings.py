@@ -28,6 +28,11 @@ def test_changes_names_the_key_and_wake_turns_separately():
     assert "続けて話せる回数（スペースキー） 0 → 1" in got
 
 
+def test_changes_names_the_talk_key_skip():
+    got = changes(base(), load_settings({"TALK_KEY_SKIP_SECONDS": "0.3"}))
+    assert "スペースキーで押した直後に捨てる秒数 0.5 → 0.3" in got
+
+
 def test_changes_is_empty_when_nothing_moved():
     assert changes(base(), base()) == []
 

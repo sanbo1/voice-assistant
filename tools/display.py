@@ -15,6 +15,7 @@
 """
 
 import json
+import queue
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -35,6 +36,7 @@ from tools.display_log import (  # noqa: E402
     read_state,
     statistics,
 )
+from tools.evdev_keys import SpaceWatcher  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = PROJECT_ROOT / "logs" / "conversation.log"
@@ -46,6 +48,8 @@ PAST_ON_SCREEN = 3
 # ボタンの合図を送る間隔と、キーの自動リピートを見分けるための待ち時間
 TALK_TOUCH_MS = 200
 KEY_REPEAT_MS = 60
+# /dev/input から読んだスペースキーの押下を、画面側で取り込む間隔
+KEY_POLL_MS = 50
 
 # テレビは内部で画面を引き伸ばし、端を切り落とすことがある（オーバースキャン）。
 # 既定で上下左右に 4% の余白を取り、実機を見ながら c キーで調整する
@@ -150,8 +154,14 @@ class Display:
         root.bind("<Key>", self.on_key)
         root.bind("<KeyPress-space>", self.on_talk_press)
         root.bind("<KeyRelease-space>", self.on_talk_release)
+        # スペースキーは、画面のフォーカスに頼らず、入力装置からも直接読む（2026-10-05。
+        # ログイン直後の自動起動のときだけ、Tk がキーを受け取れず、クリックするまで効かない障害があったため）。
+        # Tk のキー入力は、予備として残す。どちらから来ても同じ処理
+        self.keys = SpaceWatcher()
+        self.keys.start()
         self.layout()
         self.refresh()
+        self.root.after(KEY_POLL_MS, self.poll_keys)
 
     def _label(self, size_key: str, color: str, style: str = "", parent=None) -> tk.Label:
         label = tk.Label(parent if parent is not None else self.safe, bg=BACKGROUND, fg=color, text="")
@@ -241,23 +251,42 @@ class Display:
     # ---------- ボタン（スペースキー）----------
 
     def on_talk_press(self, event: tk.Event) -> str:
+        self.press_talk()
+        return "break"  # 調整モードのキー処理には渡さない
+
+    def on_talk_release(self, event: tk.Event) -> str:
+        self.release_talk()
+        return "break"
+
+    def poll_keys(self) -> None:
+        """/dev/input から読んだスペースキーの押下・解放を取り込む（別スレッドが貯めたものを取り出す）。"""
+        while True:
+            try:
+                change = self.keys.events.get_nowait()
+            except queue.Empty:
+                break
+            if change == "press":
+                self.press_talk()
+            else:
+                self.release_talk()
+        self.root.after(KEY_POLL_MS, self.poll_keys)
+
+    def press_talk(self) -> None:
         """押している間だけ聞き取ってもらう。合図を短い間隔で送り続ける。"""
         if self.calibrating:
-            return "break"  # 調整中は聞き取りを始めない
+            return  # 調整中は聞き取りを始めない
         if self.release_job is not None:  # 自動リピートによる「離した」を取り消す
             self.root.after_cancel(self.release_job)
             self.release_job = None
         if not self.talking:
             self.talking = True
             self.touch_talk()
-        return "break"  # 調整モードのキー処理には渡さない
 
-    def on_talk_release(self, event: tk.Event) -> str:
+    def release_talk(self) -> None:
         """離したことにする。ただし自動リピートの可能性があるので少し待って確かめる。"""
         if self.release_job is not None:
             self.root.after_cancel(self.release_job)
         self.release_job = self.root.after(KEY_REPEAT_MS, self.stop_talk)
-        return "break"
 
     def touch_talk(self) -> None:
         """押している間、合図のファイルを更新し続ける（止まれば本体が自動で解除する）。"""

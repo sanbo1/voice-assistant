@@ -363,3 +363,10 @@ def test_log_label_matches_the_display():
     from tools.display_log import LOCAL_SOURCES
 
     assert garbage.LOG_LABEL in LOCAL_SOURCES
+
+
+def test_board_log_label_matches_the_display():
+    from tools.display_log import LOCAL_SOURCES
+    from voice_assistant import board
+
+    assert board.LOG_LABEL in LOCAL_SOURCES

@@ -51,3 +51,14 @@ def test_reply_with_model_label(tmp_path):
     log.reply("琵琶湖です。", model="gemini-3.5-flash-lite")
     log.close()
     assert read_lines(path)[0].endswith("返答（gemini-3.5-flash-lite）：琵琶湖です。")
+
+
+def test_board_heard_uses_a_different_label_so_the_screen_does_not_show_it(tmp_path):
+    path = tmp_path / "conversation.log"
+    log = ConversationLog(path)
+    log.heard("伝言明日は早く帰ります", 0.9, board=True)
+    log.heard("今日のごみは", 0.9)
+    log.close()
+    lines = read_lines(path)
+    assert lines[0].endswith("伝言板の聞き取り（確信度 0.90）：伝言明日は早く帰ります")
+    assert lines[1].endswith("聞き取り（確信度 0.90）：今日のごみは")

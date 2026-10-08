@@ -1,0 +1,9 @@
+{
+  "people": [
+    {"key": "1", "name": "お父さん", "color": "#4C9AFF", "aliases": ["父", "パパ"]},
+    {"key": "2", "name": "お母さん", "color": "#FF6B81", "aliases": ["母", "ママ"]},
+    {"key": "3", "name": "たろう", "color": "#57D977", "aliases": []},
+    {"key": "4", "name": "はなこ", "color": "#F2C14E", "aliases": []}
+  ],
+  "everyone": {"key": "0", "name": "みんな", "color": "#C0C4C8"}
+}

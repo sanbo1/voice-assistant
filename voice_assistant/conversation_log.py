@@ -38,9 +38,13 @@ class ConversationLog:
     def status(self, text: str) -> None:
         self._write("状態", text)
 
-    def heard(self, text: str, confidence: float | None = None) -> None:
-        """confidence を渡すと「聞き取り（確信度 0.92）」と書く（しきい値の調整に使う）。"""
-        label = "聞き取り" if confidence is None else f"聞き取り（確信度 {confidence:.2f}）"
+    def heard(self, text: str, confidence: float | None = None, board: bool = False) -> None:
+        """confidence を渡すと「聞き取り（確信度 0.92）」と書く（しきい値の調整に使う）。
+
+        board が True（伝言板の操作）なら、「伝言板の聞き取り」と書く。画面の質問欄には出さないため（2026-10-08）。
+        """
+        name = "伝言板の聞き取り" if board else "聞き取り"
+        label = name if confidence is None else f"{name}（確信度 {confidence:.2f}）"
         self._write(label, text or "（聞き取れませんでした）")
 
     def reply(self, text: str, model: str | None = None) -> None:

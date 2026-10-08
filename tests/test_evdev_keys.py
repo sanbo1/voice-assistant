@@ -1,9 +1,9 @@
-from tools.evdev_keys import (
+from voice_assistant.evdev_keys import (
     EV_KEY,
     EVENT,
     KEY_SPACE,
-    SpaceTracker,
-    SpaceWatcher,
+    KeyTracker,
+    KeyWatcher,
     find_keyboards,
     parse_event,
     supports_key,
@@ -97,56 +97,76 @@ def test_find_keyboards_with_an_empty_tree(tmp_path):
 
 # ---------- 押した・離した ----------
 
+DOWN = "press"
+UP = "release"
+
+
+def tracker(*codes):
+    return KeyTracker(codes or (KEY_SPACE,))
+
 
 def test_press_and_release():
-    tracker = SpaceTracker()
-    assert tracker.feed(DEV, EV_KEY, KEY_SPACE, 1) == "press"
-    assert tracker.feed(DEV, EV_KEY, KEY_SPACE, 0) == "release"
+    t = tracker()
+    assert t.feed(DEV, EV_KEY, KEY_SPACE, 1) == (DOWN, KEY_SPACE)
+    assert t.is_down(KEY_SPACE) is True
+    assert t.feed(DEV, EV_KEY, KEY_SPACE, 0) == (UP, KEY_SPACE)
+    assert t.is_down(KEY_SPACE) is False
 
 
 def test_auto_repeat_is_ignored():
     """押し続けて出る自動リピート（値 2）は、変化として扱わない。"""
-    tracker = SpaceTracker()
-    tracker.feed(DEV, EV_KEY, KEY_SPACE, 1)
-    assert [tracker.feed(DEV, EV_KEY, KEY_SPACE, 2) for _ in range(5)] == [None] * 5
-    assert tracker.feed(DEV, EV_KEY, KEY_SPACE, 0) == "release"
+    t = tracker()
+    t.feed(DEV, EV_KEY, KEY_SPACE, 1)
+    assert [t.feed(DEV, EV_KEY, KEY_SPACE, 2) for _ in range(5)] == [None] * 5
+    assert t.feed(DEV, EV_KEY, KEY_SPACE, 0) == (UP, KEY_SPACE)
 
 
-def test_other_keys_are_ignored():
-    """スペース以外のキーは、押されても何も起こさない（内容も見ない）。"""
-    tracker = SpaceTracker()
-    assert tracker.feed(DEV, EV_KEY, 30, 1) is None   # a
-    assert tracker.feed(DEV, EV_KEY, 28, 1) is None   # Enter
-    assert tracker.feed(DEV, 2, KEY_SPACE, 1) is None  # キーではない種類のイベント（マウスの動きなど）
+def test_keys_that_were_not_asked_for_are_ignored():
+    """指定していないキーは、押されても何も起こさない（内容も見ない）。"""
+    t = tracker()
+    assert t.feed(DEV, EV_KEY, 30, 1) is None    # a
+    assert t.feed(DEV, EV_KEY, 28, 1) is None    # Enter
+    assert t.feed(DEV, 2, KEY_SPACE, 1) is None  # キーではない種類のイベント（マウスの動きなど）
+    assert t.is_down(30) is False
+
+
+def test_several_keys_are_tracked_separately():
+    t = tracker(KEY_SPACE, 2, 111)   # スペース、1、Delete
+    assert t.feed(DEV, EV_KEY, 2, 1) == (DOWN, 2)
+    assert t.feed(DEV, EV_KEY, 111, 1) == (DOWN, 111)
+    assert (t.is_down(2), t.is_down(111), t.is_down(KEY_SPACE)) == (True, True, False)
+    assert t.feed(DEV, EV_KEY, 2, 0) == (UP, 2)
+    assert t.is_down(111) is True
 
 
 def test_pressing_twice_without_release_is_one_press():
-    tracker = SpaceTracker()
-    assert tracker.feed(DEV, EV_KEY, KEY_SPACE, 1) == "press"
-    assert tracker.feed(DEV, EV_KEY, KEY_SPACE, 1) is None
+    t = tracker()
+    assert t.feed(DEV, EV_KEY, KEY_SPACE, 1) == (DOWN, KEY_SPACE)
+    assert t.feed(DEV, EV_KEY, KEY_SPACE, 1) is None
 
 
 def test_release_without_press_is_ignored():
-    assert SpaceTracker().feed(DEV, EV_KEY, KEY_SPACE, 0) is None
+    assert tracker().feed(DEV, EV_KEY, KEY_SPACE, 0) is None
 
 
 def test_two_devices_count_as_held_until_both_are_released():
-    tracker = SpaceTracker()
-    assert tracker.feed("a", EV_KEY, KEY_SPACE, 1) == "press"
-    assert tracker.feed("b", EV_KEY, KEY_SPACE, 1) is None
-    assert tracker.feed("a", EV_KEY, KEY_SPACE, 0) is None
-    assert tracker.feed("b", EV_KEY, KEY_SPACE, 0) == "release"
+    t = tracker()
+    assert t.feed("a", EV_KEY, KEY_SPACE, 1) == (DOWN, KEY_SPACE)
+    assert t.feed("b", EV_KEY, KEY_SPACE, 1) is None
+    assert t.feed("a", EV_KEY, KEY_SPACE, 0) is None
+    assert t.feed("b", EV_KEY, KEY_SPACE, 0) == (UP, KEY_SPACE)
 
 
 def test_unplugging_while_held_releases():
-    tracker = SpaceTracker()
-    tracker.feed(DEV, EV_KEY, KEY_SPACE, 1)
-    assert tracker.forget(DEV) == "release"
-    assert tracker.forget(DEV) is None
+    t = tracker(KEY_SPACE, 2)
+    t.feed(DEV, EV_KEY, KEY_SPACE, 1)
+    t.feed(DEV, EV_KEY, 2, 1)
+    assert sorted(t.forget(DEV)) == [(UP, 2), (UP, KEY_SPACE)]
+    assert t.forget(DEV) == []
 
 
 def test_unplugging_while_not_held_does_nothing():
-    assert SpaceTracker().forget(DEV) is None
+    assert tracker().forget(DEV) == []
 
 
 # ---------- 読んだバイト列の処理 ----------
@@ -159,29 +179,40 @@ def drain(watcher):
     return got
 
 
+def make_watcher(*codes):
+    return KeyWatcher(codes or (KEY_SPACE,), find=lambda: [])
+
+
 def test_watcher_turns_events_into_press_and_release():
-    watcher = SpaceWatcher(find=lambda: [])
+    watcher = make_watcher()
     watcher.handle(DEV, event_bytes(KEY_SPACE, 1) + event_bytes(KEY_SPACE, 0))
-    assert drain(watcher) == ["press", "release"]
+    assert drain(watcher) == [(DOWN, KEY_SPACE), (UP, KEY_SPACE)]
 
 
 def test_watcher_handles_several_events_in_one_read():
     """1 回の読み取りに、複数のイベント（同期イベントなどを含む）が入っていても、順に処理する。"""
-    watcher = SpaceWatcher(find=lambda: [])
+    watcher = make_watcher()
     syn = event_bytes(0, 0, kind=0)
-    data = syn + event_bytes(30, 1) + event_bytes(KEY_SPACE, 1) + syn + event_bytes(KEY_SPACE, 2) \
-        + event_bytes(KEY_SPACE, 0) + syn
+    data = syn + event_bytes(30, 1) + event_bytes(KEY_SPACE, 1) + syn + event_bytes(KEY_SPACE, 2)         + event_bytes(KEY_SPACE, 0) + syn
     watcher.handle(DEV, data)
-    assert drain(watcher) == ["press", "release"]
+    assert drain(watcher) == [(DOWN, KEY_SPACE), (UP, KEY_SPACE)]
 
 
 def test_watcher_ignores_a_truncated_tail():
-    watcher = SpaceWatcher(find=lambda: [])
-    watcher.handle(DEV, event_bytes(KEY_SPACE, 1) + b"\x01\x02\x03")
-    assert drain(watcher) == ["press"]
+    watcher = make_watcher()
+    watcher.handle(DEV, event_bytes(KEY_SPACE, 1) + b"")
+    assert drain(watcher) == [(DOWN, KEY_SPACE)]
 
 
 def test_watcher_never_reports_other_keys():
-    watcher = SpaceWatcher(find=lambda: [])
+    watcher = make_watcher()
     watcher.handle(DEV, b"".join(event_bytes(code, 1) for code in (16, 17, 18, 28, 29)))
     assert drain(watcher) == []
+
+
+def test_watcher_tells_whether_a_key_is_held():
+    watcher = make_watcher(KEY_SPACE, 2)
+    watcher.handle(DEV, event_bytes(2, 1))
+    assert (watcher.is_down(2), watcher.is_down(KEY_SPACE)) == (True, False)
+    watcher.handle(DEV, event_bytes(2, 0))
+    assert watcher.is_down(2) is False

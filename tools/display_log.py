@@ -22,9 +22,12 @@ _LINE = re.compile(r"^(\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+([^：]+)：(.*)$")
 _CONFIDENCE = re.compile(r"確信度 ([0-9.]+)")
 _MODEL = re.compile(r"^返答（(.+)）$")
 _SUPPRESSED = re.compile(r"見送り (\d+) 回")
-# AI を使わずに答えた返答の印（voice_assistant/garbage.py の LOG_LABEL と同じ。画面は本体の依存を読み込まない）。
+# AI を使わずに答えた返答の印（voice_assistant/garbage.py と board.py の LOG_LABEL と同じ。画面は本体の依存を読み込まない）。
 # 「今日の利用」は AI の利用回数（無料枠）を表すので、数えない
-LOCAL_SOURCES = ("予定表",)
+LOCAL_SOURCES = ("予定表", "伝言板")
+# 伝言板の操作は、画面の左側（質問・返答・過去のやり取り）に出さない（2026-10-08）。
+# 本体は「伝言板の聞き取り」と書くので質問としては読まれない。返答の印は、それ以前の記録（「聞き取り」のまま）を隠すために見る
+BOARD_SOURCE = "伝言板"
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,8 @@ def exchanges(entries: list[Entry]) -> list[tuple[Entry, Entry | None]]:
         if entry.kind != "heard":
             continue
         reply = next((e for e in entries[i + 1:i + 4] if e.kind == "reply"), None)
+        if reply is not None and reply.model == BOARD_SOURCE:
+            continue  # 伝言板の操作（以前の記録）は、質問と返答として出さない
         # 次の「聞き取り」より前にある返答だけを組にする
         following_heard = next((e for e in entries[i + 1:i + 4] if e.kind == "heard"), None)
         if reply is not None and following_heard is not None and following_heard.time < reply.time:

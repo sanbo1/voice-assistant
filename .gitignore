@@ -46,6 +46,10 @@ display-settings.json
 # ごみ収集の予定表（家ごとの設定。雛形は config/garbage.example.json）
 garbage.json
 
+# 伝言板の伝言と宛先の設定（家族の会話。雛形は config/board-settings.example.json）
+board.json
+board-settings.json
+
 # OS・エディタ
 .DS_Store
 Thumbs.db

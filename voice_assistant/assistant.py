@@ -7,6 +7,7 @@
 
 import dataclasses
 import logging
+import queue
 import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
@@ -16,9 +17,12 @@ import numpy as np
 from . import audio
 from .ai import AiError, ChatClient
 from .ai.base import BUSY, NETWORK, TIMEOUT
-from . import garbage
+from . import board, garbage
+from .board_commands import AddCommand, DeleteAllCommand, DeleteCommand, Problem, UndoCommand, parse, parse_confirmation
+from .board_control import BOARD_CODES, CTRL_KEYS, DIGIT_KEYS, BoardController
 from .config import AssistantConfig, AudioConfig, GeminiConfig, SttConfig, WakeWordConfig
 from .conversation_log import ConversationLog
+from .evdev_keys import KeyWatcher
 from .frames import rechunk
 from .history import ConversationHistory
 from .settings import SettingsWatcher, changes, needs_restart
@@ -35,7 +39,7 @@ from .state import (
 from .stt import RecognitionStream, VoskRecognizer, model_dir_from_config
 from .talk_key import TalkSignal, collect_while_held, frames_to_skip
 from .tts import OpenJTalk, to_speakable
-from .vad import EndpointConfig, Endpointer, SileroVad, Utterance, collect_utterance
+from .vad import EndpointConfig, Endpointer, EndReason, SileroVad, Utterance, collect_utterance
 from .wakeword import FRAME_SAMPLES, WakeWordDetector
 
 logger = logging.getLogger(__name__)
@@ -66,6 +70,8 @@ SLOW_RESPONSE_SECONDS = 5.0
 FOLLOWUP_DELAY_SECONDS = 0.5
 # 聞き取った文字がこれより短いときは AI に送らない（周りの音による短い誤認識を送らないため）
 MIN_QUESTION_CHARS = 2
+# 声で「消してよいですか」と聞いたあと、返事を待つ秒数（ふだんの「続けて話せる」より長めにする）
+CONFIRM_LISTEN_SECONDS = 6.0
 # 待ち受け中に設定の変更を見る間隔（フレーム数。1 フレーム 80ms なので約 1 秒ごと）
 SETTINGS_CHECK_FRAMES = 12
 
@@ -94,6 +100,8 @@ def reply_or_error_message(ai: ChatClient, history: ConversationHistory, text: s
 
 
 class Assistant:
+    _no_followup = False  # 伝言を預けた・戻した回のあとは、続けて聞き取らない（回ごとに決まる）
+
     def __init__(
         self,
         ai: ChatClient,
@@ -107,6 +115,7 @@ class Assistant:
         endpoint_config: EndpointConfig = EndpointConfig(),
         watcher: SettingsWatcher | None = None,
         ai_factory: Callable[[GeminiConfig], ChatClient] | None = None,
+        board_controller: BoardController | None = None,
     ):
         self._ai = ai
         self._audio = audio_config
@@ -117,6 +126,14 @@ class Assistant:
         self._detector = WakeWordDetector(config=wakeword_config)
         self._wake_note = ""  # 直前の検知のスコア（空振りだったときに記録へ残すため）
         self._by_key = False  # 直前の聞き取りをスペースキーで始めたか（続けて話せる回数を選ぶため）
+        # 伝言板：数字キーを押しながら話した伝言の宛先（押している間だけ入る）、押しているキー
+        self._message_to: str | None = None
+        self._message_code: int | None = None
+        self._board_turn_done = False  # 伝言板のキー操作だけで終わった回（聞き取りは無い）か
+        self._skip_ready_chime = False  # その回は、待ち受けに戻るお知らせ音を鳴らさない（応答を言ったばかりのため）
+        self._board = board_controller or BoardController()
+        # 伝言板のキー（数字・上下左右の矢印・Delete・Insert など）は、スペースキーと同じく入力装置から直接読む
+        self._board_keys = KeyWatcher(BOARD_CODES)
         self._vad = SileroVad()
         self._stt_config = stt_config
         self._recognizer = VoskRecognizer(model_dir_from_config(stt_config))
@@ -150,10 +167,15 @@ class Assistant:
             # 読み上げの途中で出力先が増えた・変わった場合（＝読み上げが間に合わなかった可能性）
             logger.info("読み上げのあと出力先が変わりました：%s", after)
             self._log.status(f"読み上げのあと出力先が変わりました：{after}")
+        self._board_keys.start()
         while True:
             try:
+                self._report_board_problems()
                 # 待ち受けに戻ったことを知らせる（鳴らし終わってからマイクを開く）
-                audio.play(self._ready_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
+                if self._skip_ready_chime:
+                    self._skip_ready_chime = False
+                else:
+                    audio.play(self._ready_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
                 # 画面の会話ログだけを見ていると、待ち受けに戻ったことが分からず止まって見えるため残す
                 # （短い聞き取りのあとは何も言わずに戻るので、直前の行が「聞き取り：…」のままになる。2026-09-22）
                 self._log.status(WAITING_MESSAGE)
@@ -170,12 +192,14 @@ class Assistant:
             return
         # スペースキーで始めたときは、ウェイクワードのときとは別の回数を使う（既定は 0 ＝ 続けて聞かない）
         max_turns = self._config.followup_max_turns_key if self._by_key else self._config.followup_max_turns
-        # 質問にならなかった回があれば、その時点で待ち受けに戻る（雑音を拾い続けないため）
-        for _ in range(max_turns):
-            if self._config.followup_seconds <= 0:
-                return
+        # 質問にならなかった回があれば、その時点で待ち受けに戻る（雑音を拾い続けないため）。
+        # 伝言を消してよいか聞いたあとは、続けて話す設定に関係なく、返事を待つ。
+        # 伝言を預けた・戻した回のあとは、続けて聞かない（伝言は単発のため。2026-10-08）
+        turns = 0
+        while self._board.confirming or (not self._no_followup and turns < max_turns and self._config.followup_seconds > 0):
             if not self._answer_once(self._listen_again):
                 return
+            turns += 1
 
     def _answer_once(self, listen: Callable[[], tuple[Utterance, RecognitionStream]],
                      *, after_wake: bool = False) -> bool:
@@ -184,8 +208,15 @@ class Assistant:
         after_wake が True のとき、質問にならなかった回は「空振り」として会話ログに残す
         （ウェイクワードの誤反応をあとから数えられるようにするため。2026-09-21）。
         """
+        self._no_followup = False
         utterance, recognition = listen()
+        if self._board_turn_done:  # 伝言板のキー操作だけで終わった回。聞き取りは無い
+            self._board_turn_done = False
+            self._skip_ready_chime = True
+            return False
+        message_to, self._message_to = self._message_to, None  # 数字キーで始めた回の宛先（この回だけ有効）
         if utterance.samples is None:
+            self._board.cancel_confirmation()  # 返事が無ければ、消さずにやめる
             if after_wake:
                 self._log_empty_wake(utterance.reason.value)
             else:
@@ -196,7 +227,10 @@ class Assistant:
         started = time.perf_counter()
         text = recognition.finish()
         recognized = time.perf_counter()
-        self._log.heard(text, recognition.confidence)
+        # 伝言板の操作（預ける・消す・戻す・確認の返事）は、画面の質問欄に出さないよう、別の見出しで記録する
+        self._log.heard(text, recognition.confidence, board=self._is_board_turn(text, message_to))
+        if self._board.confirming:  # 「消してよいですか」への返事。短い返事も受け付けるので、雑音の足切りより前に見る
+            return self._answer_confirmation(text)
         if len(text) < MIN_QUESTION_CHARS:
             # 周りの音を拾っただけのことが多いため、AI には送らず、何も言わずに待ち受けへ戻る
             # （ウェイクワードの誤反応のたびに話すとうるさいため。2026-09-20）
@@ -210,7 +244,10 @@ class Assistant:
                 self._log_empty_wake("雑音とみなした")
             return False
 
-        answer = self._answer_locally(text)
+        if message_to is not None:  # 数字キーを押しながら話した回は、伝言（AI には送らない）
+            answer = self._store_message(message_to, text)
+        else:
+            answer = self._answer_locally(text)
         if answer is None:
             answer = reply_or_error_message(self._ai, self._history, text, self._log)
         answered = time.perf_counter()
@@ -218,12 +255,19 @@ class Assistant:
         self._speak(answer, before_play=lambda: self._log_response_time(started, recognized, answered))
         return True
 
+    def _is_board_turn(self, text: str, message_to: str | None) -> bool:
+        """この回は伝言板の操作か（数字キーを押しながらの伝言、消してよいかへの返事、声の命令）。"""
+        return bool(self._board.confirming) or message_to is not None or parse(text, self._board.settings) is not None
+
     def _answer_locally(self, text: str) -> str | None:
         """AI を使わずに答えられる質問なら、答えを返す（いまは「今日のごみ」だけ。2026-10-04）。
 
         予定表を使えないときも、定型の質問には「登録されていません」と答える（AI には送らない）。
         理由は会話ログのエラーに残す。画面にも答えが出るよう「返答」にも書くが、会話履歴には入れない。
         """
+        command = parse(text, self._board.settings)
+        if command is not None:
+            return self._run_board_command(command)
         found = garbage.answer(text, datetime.now().date())
         if found is None:
             return None
@@ -234,12 +278,84 @@ class Assistant:
         self._log.reply(found.text, garbage.LOG_LABEL)
         return found.text
 
+    def _run_board_command(self, command) -> str:
+        """声で言われた伝言板の命令を実行する。読み上げる短い応答を返す（内容は読み上げない）。"""
+        if isinstance(command, AddCommand):
+            reply = self._add_message(command.to, command.text)
+        elif isinstance(command, DeleteCommand):
+            reply = self._board.request_delete(command.number)
+        elif isinstance(command, DeleteAllCommand):
+            reply = self._board.request_delete_all()
+        elif isinstance(command, UndoCommand):
+            reply = self._board.undo()
+            self._no_followup = reply.endswith("戻しました")  # 戻せたときだけ（「戻せる伝言はありません」などは別）
+        else:
+            assert isinstance(command, Problem)
+            reply = command.message
+        self._log.reply(reply, board.LOG_LABEL)
+        return reply
+
+    def _store_message(self, to: str, text: str) -> str:
+        """数字キーを押しながら話した伝言を預かる。「伝言、」と言い添えても、宛先はキーで決まる。"""
+        command = parse(text, self._board.settings)
+        reply = self._add_message(to, command.text if isinstance(command, AddCommand) else text)
+        self._log.reply(reply, board.LOG_LABEL)
+        return reply
+
+    def _add_message(self, to: str, text: str) -> str:
+        """伝言を預かる。預かれたときは、続けて聞き取らない（足せなかったときは、言い直せるよう続ける）。"""
+        before = len(self._board.board.messages)
+        reply = self._board.add(to, text)
+        self._no_followup = len(self._board.board.messages) > before
+        return reply
+
+    def _answer_confirmation(self, text: str) -> bool:
+        """「消してよいですか」への返事を受けて、消すか、やめる。いずれにしても、待ち受けに戻る（False を返す）。"""
+        if not text.strip():
+            self._board.cancel_confirmation()
+            return False
+        verdict = parse_confirmation(text)  # 聞き取れない返事は、消さない側に倒す
+        reply = self._board.answer_confirmation(verdict == "yes")
+        self._log.reply(reply, board.LOG_LABEL)
+        self._note_state(SPEAKING)
+        self._speak(reply)
+        return False
+
+    def _report_board_problems(self) -> None:
+        for problem in self._board.take_problems():
+            self._log.error(problem)
+
+    def _poll_board_keys(self) -> tuple[str, object] | None:
+        """伝言板のキーを取り込む。
+
+        数字キー（宛先つきの録音）なら ("talk", (宛先, コード))、読み上げる応答があれば ("say", 応答)、
+        何もなければ None を返す。
+        """
+        self._board.tick()
+        while True:
+            try:
+                change, code = self._board_keys.events.get_nowait()
+            except queue.Empty:
+                return None
+            if change != "press":
+                continue
+            key = DIGIT_KEYS.get(code)
+            if key is not None:
+                if self._board.knows_recipient(key):  # 設定にない数字キーは、何もしない
+                    return "talk", (key, code)
+                continue
+            ctrl = any(self._board_keys.is_down(c) for c in CTRL_KEYS)  # Ctrl+Delete（全部消す）のため
+            phrase = self._board.handle_key(code, ctrl=ctrl)
+            if phrase:
+                return "say", phrase
+
     def _wake_and_listen(self) -> tuple[Utterance, RecognitionStream]:
         """ウェイクワードを待ち、お知らせ音を鳴らしてから聞き取る（マイクは開いたまま続ける）。"""
         stream = audio.stream_frames(FRAME_SAMPLES, device=self._audio.input_device)
         try:
             self._detector.reset()
             self._by_key = False
+            self._message_to = self._message_code = None
             waited = 0
             for frame in stream:
                 # 待ち受け中だけ設定の変更を見る（約 1 秒ごと。会話の途中では変えない）
@@ -249,6 +365,19 @@ class Assistant:
                 if self._talk.pressed():
                     self._by_key = True
                     break
+                action = self._poll_board_keys()
+                if action is not None:
+                    kind, value = action
+                    if kind == "talk":  # 数字キーを押している間、宛先つきの伝言を録音する
+                        self._by_key = True
+                        self._message_to, self._message_code = value
+                        break
+                    # キー操作の短い応答（「削除しました」など）。マイクを閉じて読み上げ、待ち受けに戻る
+                    stream.close()
+                    self._log.status(f"伝言板のキー操作：{value}")
+                    self._speak(value)
+                    self._board_turn_done = True
+                    return Utterance(samples=None, reason=EndReason.INPUT_ENDED), self._recognizer.start()
                 if self._detector.process(frame):
                     break
             audio.play_nowait(self._chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
@@ -269,15 +398,25 @@ class Assistant:
 
     def _collect_held(self, stream: Iterator[np.ndarray]) -> tuple[Utterance, RecognitionStream]:
         """ボタンを押している間だけ聞き取る（話し終わりの無音判定は使わない）。"""
-        self._wake_note = "ボタン"
-        logger.info("ボタンで聞き取りを開始")
-        self._log.status("聞き取り中…話してください（ボタンを押している間）")
+        if self._message_to is not None:
+            person = self._board.settings.person(self._message_to)
+            self._wake_note = "伝言"
+            logger.info("伝言の聞き取りを開始（宛先 %s）", self._message_to)
+            self._log.status(f"聞き取り中…話してください（伝言：{person.name if person else self._message_to}宛、"
+                             "ボタンを押している間）")
+            code = self._message_code
+            held = lambda: self._board_keys.is_down(code)  # noqa: E731
+        else:
+            self._wake_note = "ボタン"
+            logger.info("ボタンで聞き取りを開始")
+            self._log.status("聞き取り中…話してください（ボタンを押している間）")
+            held = self._talk.held
         self._note_state(LISTENING)
         recognition = self._recognizer.start()
         max_frames = int(self._endpoint_config.max_seconds * audio.SAMPLE_RATE / FRAME_SAMPLES)
         # 押した直後はお知らせ音を拾うので、音声認識に渡さない（質問の頭に「と」「ん」が付くのを防ぐ）
         skip = frames_to_skip(self._config.talk_key_skip_seconds, audio.SAMPLE_RATE, FRAME_SAMPLES)
-        utterance = collect_while_held(stream, self._talk.held, max_frames, recognition, skip_frames=skip)
+        utterance = collect_while_held(stream, held, max_frames, recognition, skip_frames=skip)
         return utterance, recognition
 
     def _listen_again(self) -> tuple[Utterance, RecognitionStream]:
@@ -285,7 +424,7 @@ class Assistant:
         # スピーカーから出た読み上げの終わりを拾わないよう、少し待ってからマイクを開く
         time.sleep(FOLLOWUP_DELAY_SECONDS)
         audio.play(self._listen_chime, audio.OUTPUT_SAMPLE_RATE, device=self._audio.output_device)
-        seconds = self._config.followup_seconds
+        seconds = CONFIRM_LISTEN_SECONDS if self._board.confirming else self._config.followup_seconds
         # 残り回数は出さない。短い聞き取りが 1 回あればそこで終わるため、
         # 「このあと N 回まで」は実際の挙動と食い違っていた（2026-09-22）
         self._log.status(f"続けて話せます（{seconds:g} 秒以内）")

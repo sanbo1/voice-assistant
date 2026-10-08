@@ -237,3 +237,43 @@ def test_schedule_answer_is_shown_on_screen_like_any_reply():
     )
     heard, reply = latest_exchange([parse_line(line) for line in lines])
     assert reply.body == "今日は月曜日です。燃えるごみの日です。"
+
+
+# ---------- 伝言板の操作は、質問・返答として出さない（2026-10-08）----------
+
+BOARD_LOG = """\
+09/23 14:30:00  聞き取り（確信度 0.92）：今日は何の日
+09/23 14:30:05  返答：秋分の日です。
+09/23 14:31:00  伝言板の聞き取り（確信度 0.90）：伝言明日は早く帰ります
+09/23 14:31:00  返答（伝言板）：預かりました
+09/23 14:32:00  聞き取り（確信度 0.95）：明日の天気は
+"""
+
+
+def parsed(log):
+    return [e for line in log.splitlines() if (e := parse_line(line)) is not None]
+
+
+def test_board_heard_is_not_a_question():
+    assert parse_line("09/23 14:31:00  伝言板の聞き取り（確信度 0.90）：伝言明日").kind == "other"
+
+
+def test_board_turns_do_not_replace_the_latest_exchange_or_the_past_ones():
+    found = parsed(BOARD_LOG)
+    heard, reply = latest_exchange(found)
+    assert (heard.body, reply) == ("明日の天気は", None)
+    assert [h.body for h, _ in past_exchanges(found)] == ["今日は何の日"]
+
+
+def test_the_latest_exchange_stays_after_a_board_turn():
+    found = parsed("\n".join(BOARD_LOG.splitlines()[:4]))
+    heard, reply = latest_exchange(found)
+    assert (heard.body, reply.body) == ("今日は何の日", "秋分の日です。")
+
+
+def test_old_records_of_board_turns_are_hidden_too():
+    old = "\n".join(["09/23 14:30:00  聞き取り（確信度 0.92）：今日は何の日", "09/23 14:30:05  返答：秋分の日です。",
+                     "09/23 14:31:00  聞き取り（確信度 0.90）：伝言明日は早く帰ります",
+                     "09/23 14:31:00  返答（伝言板）：預かりました"])
+    heard, reply = latest_exchange(parsed(old))
+    assert heard.body == "今日は何の日"
